@@ -102,7 +102,8 @@ class unrelatedHCP_PatchData(data.Dataset):
                     .format(self.cal_equiv_dist, self.use_endpoints_dist))
                 
         # load data
-        with open(os.path.join(root, '{}.pickle'.format(split)), 'rb') as file:
+        # with open(os.path.join(root, '{}.pickle'.format(split)), 'rb') as file: #! bug didn't work
+        with open(os.path.join('../TrainData_800clu800ol/', '{}.pickle'.format(split)), 'rb') as file:
             # Load the data from the file
             data_dict = pickle.load(file)
         self.features = data_dict['feat']
@@ -191,8 +192,18 @@ class unrelatedHCP_PatchData(data.Dataset):
                     cur_angles = []
                     # rotations
                     for i, rot_ang in enumerate(self.rot_ang_lst):
-                        angle = ((torch.rand(1) - 0.5)*2*rot_ang).item()  # random angle between [-rot_ang, rot_ang] 
-                        rot_axis_name = get_rot_axi(self.aug_axis_lst[i])
+                        try:
+                            angle = ((torch.rand(1) - 0.5)*2*rot_ang).item()  # random angle between [-rot_ang, rot_ang] 
+                        except:
+                            print(rot_ang, type(rot_ang))
+                            angle = ((torch.rand(1) - 0.5)*2*0).item()
+                        try:
+                            rot_axis_name = get_rot_axi(self.aug_axis_lst[i])
+                        except:
+                            print(self.rot_ang_lst)
+                            print(len(self.aug_axis_lst), i)
+                            rot_axis_name = get_rot_axi(self.aug_axis_lst[-1])
+                            
                         cur_trot = RotateAxisAngle(angle=angle, axis=rot_axis_name, degrees=True)  #  rotate around the axis by the angle
                         cur_angles.append(round(angle,1))
                         if trot is None:
@@ -204,7 +215,16 @@ class unrelatedHCP_PatchData(data.Dataset):
                     if self.scale_ratio_range[0] == 0 and self.scale_ratio_range[1] == 0:
                         scale_r = 1.0
                     else:
-                        scale_r = torch.distributions.Uniform(1-self.scale_ratio_range[0], 1+self.scale_ratio_range[1]).sample().item()  # random scale between [1-scale_ratio_range[0], 1+scale_ratio_range[1]]
+                        try:
+                            scale_r = torch.distributions.Uniform(1-self.scale_ratio_range[0], 1+self.scale_ratio_range[1]).sample().item()  # random scale between [1-scale_ratio_range[0], 1+scale_ratio_range[1]]
+                            # print("scale_r is: ", scale_r)
+                        except:
+                            # print(self.scale_ratio_range)
+                            # print(type(self.scale_ratio_range[0]))
+                            # print(type(self.scale_ratio_range[1]))
+                            scale_r=1.0
+                            # scale_r = torch.distributions.Uniform(1-int(self.scale_ratio_range[0]), 1+int(self.scale_ratio_range[1])).sample().item()  # random scale between [1-scale_ratio_range[0], 1+scale_ratio_range[1]]
+                            
                     cur_trot = Scale(scale_r) 
                     trot = trot.compose(cur_trot)
                         
@@ -284,7 +304,7 @@ class unrelatedHCP_PatchData(data.Dataset):
             fiber_feat (array): [n_subject*n_fiber, n_point, n_feat] feature in fiber-level
             fiber_label (array): [n_subject*n_fiber, n_point or 1] label in fiber-level
             local_feat (array): [n_subject*n_fiber, n_point, n_feat, k] k nearest neighbor streamline feature (local)
-            global_feat (array): [n_subject, n_point, n_feat, 1] randomly selected streamline feature (global)
+            global_feat (array): [n_subject, n_point, n_feat, k_global] randomly selected streamline feature (global)
         """                   
         
         num_subjects = self.brain_features.shape[0]

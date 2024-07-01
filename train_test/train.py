@@ -252,13 +252,16 @@ def train_val_DL_net(net):
     org_best_f1_val_pred_lst,tract_best_f1_val_pred_lst = [],[]
     
     for epoch in range(args.epoch):
+        print(f'epoch is {epoch}')
         train_start_time = time.time()
         epoch += 1
         total_train_loss, total_val_loss = 0, 0
         train_labels_lst, train_predicted_lst = [], []
         val_labels_lst, val_predicted_lst = [], []
-        # training
+        # trainings
+        print('training')
         for i, data in enumerate(train_loader, start=0):
+            print(f'training {i}')
             total_train_loss, train_labels_lst, train_predicted_lst = \
                 train_val_test_forward(i, data, net, 'train', total_train_loss, train_labels_lst, train_predicted_lst, 
                                        args, device, num_classes, epoch, train_num_batch, train_global_feat=train_global_feat)
@@ -266,6 +269,7 @@ def train_val_DL_net(net):
         if args.scheduler == 'step':
             scheduler.step()
         # train metric calculation
+        print('Metric calculation')
         train_end_time = time.time()
         train_time = round(train_end_time-train_start_time, 2)
         train_loss_lst, train_acc_lst, train_precision_lst, train_recall_lst, train_f1_lst,_,_,_,_,_,_ = \

@@ -1,6 +1,7 @@
 import argparse
 import json
 import math
+import os
 from argparse import Namespace
 
 def create_parser():
@@ -8,7 +9,7 @@ def create_parser():
     parser = argparse.ArgumentParser(description="Train and evaluate a model",
                                      epilog="by Tengfei Xue txue4133@uni.sydney.edu.au")
     # Paths
-    parser.add_argument('--input_path', type=str, default='./TrainData/outliers_data/DEBUG_kp0.1/h5_np15/',
+    parser.add_argument('--input_path', type=str, default='./TrainData_800clu800ol/',
                         help='Input graph data and labels')
     parser.add_argument('--out_path_base', type=str, default='./ModelWeights', help='Save trained models')
     # Data augmentation parameters
@@ -22,7 +23,7 @@ def create_parser():
     parser.add_argument('--k_global', type=int, default=500, help='Global streamlines (k_global). The number of streamlines (in streamline level) for random sampling')
     parser.add_argument('--k_point_level', type=int, default=5, help='The number of neighbor points (in point level) on one streamline')
     # Training parameters
-    parser.add_argument('--save_step', type=int, default=5, help='The interval of saving weights')
+    parser.add_argument('--save_step', type=int, default=1, help='The interval of saving weights')
     parser.add_argument('--num_workers', type=int, help='number of data loading workers', default=4)
     parser.add_argument('--emb_dims', type=int, default=1024, metavar='N',help='Dimension of embeddings')
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
@@ -62,10 +63,18 @@ def adaptive_args(args):
 
 def load_args(path, args):
     params_set_in_testing = ['aug_times', 'out_path']  # For the parameter name in this list, input the parameter value from test.py or test_realdata.py
+    
+    # Check if the file exists
+    if not os.path.exists(path):
+        # If not, create the file with default values
+        with open(path, 'w') as f:
+            json.dump(vars(args), f)
+    
+    # Now load the file
     with open(path, 'r') as f:
         saved_json_dict = json.load(f)
         args_dict = vars(args)
-        for key,value in saved_json_dict.items():
+        for key, value in saved_json_dict.items():
             if key in params_set_in_testing:
                 print('Skip loading {} from training args'.format(key))
                 continue

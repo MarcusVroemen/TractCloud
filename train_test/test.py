@@ -82,6 +82,8 @@ if __name__ == '__main__':
     # input from train.py keyboard, in cli.txt
     args = load_args(args_path, args)
     # fix seed
+    args.manualSeed = 0 
+    print("Random Seed: ", args.manualSeed)
     fix_seed(args.manualSeed)
     # adaptively change the args
     args = adaptive_args(args)

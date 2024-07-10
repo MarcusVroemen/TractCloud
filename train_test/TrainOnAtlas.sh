@@ -5,7 +5,7 @@ model_name="dgcnn"            # model
 # epoch=20                        # epoch
 epoch=2                        # epoch
 # batch_size=1024                # batch size
-batch_size=32                # batch size
+batch_size=128                # batch size
 lr=1e-3                        # learning rate
 
 # Data
@@ -32,5 +32,5 @@ out_path=../ModelWeights/Data${input_data}_Rot${rot_ang_lst}Scale-${scale_ratio_
 input_path=../TrainData_${input_data}
 
 # Train/Validation/Test
-python train.py --include_org_data --recenter --k_ds_rate ${k_ds_rate} --rot_ang_lst ${rot_ang_lst} --scale_ratio_range ${scale_ratio_range} --trans_dis ${trans_dis} --aug_times ${aug_times} --k ${k} --k_point_level ${k_point_level} --k_global ${k_global} --use_tracts_testing --num_fiber_per_brain ${num_f_brain} --num_point_per_fiber ${num_p_fiber} --input_path ${input_path} --epoch ${epoch} --out_path_base ${out_path} --model_name $model_name --train_batch_size $batch_size --val_batch_size $batch_size --test_batch_size $batch_size  --lr ${lr}
-# python test.py --out_path_base ${out_path} --aug_times ${test_aug_times}
+# python train.py --include_org_data --recenter --k_ds_rate ${k_ds_rate} --rot_ang_lst ${rot_ang_lst} --scale_ratio_range ${scale_ratio_range} --trans_dis ${trans_dis} --aug_times ${aug_times} --k ${k} --k_point_level ${k_point_level} --k_global ${k_global} --use_tracts_testing --num_fiber_per_brain ${num_f_brain} --num_point_per_fiber ${num_p_fiber} --input_path ${input_path} --epoch ${epoch} --out_path_base ${out_path} --model_name $model_name --train_batch_size $batch_size --val_batch_size $batch_size --test_batch_size $batch_size  --lr ${lr}
+python test.py --out_path_base ${out_path} --aug_times ${test_aug_times}

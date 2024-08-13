@@ -259,9 +259,7 @@ def train_val_DL_net(net):
         train_labels_lst, train_predicted_lst = [], []
         val_labels_lst, val_predicted_lst = [], []
         # trainings
-        print('training')
         for i, data in enumerate(train_loader, start=0):
-            print(f'training {i}')
             total_train_loss, train_labels_lst, train_predicted_lst = \
                 train_val_test_forward(i, data, net, 'train', total_train_loss, train_labels_lst, train_predicted_lst, 
                                        args, device, num_classes, epoch, train_num_batch, train_global_feat=train_global_feat)
@@ -344,8 +342,8 @@ def meters(epoch, num_batch, total_loss, labels_lst, predicted_lst,
     tract_pred_lst = cluster2tract_label(predicted_lst, ordered_tract_cluster_mapping_dict)
     tract_acc, _, _, tract_mac_f1 = calculate_acc_prec_recall_f1(tract_labels_lst, tract_pred_lst)   
     
-    logger.info('epoch [{}/{}] time: {}s {} loss: {} org (800clusters+800outliers) acc: {},f1: {}; Tract acc: {},f1: {}'
-                 .format(epoch, args.epoch, run_time, state, round(avg_loss, 4), round(org_acc, 4), round(org_mac_f1, 4), round(tract_acc, 4), round(tract_mac_f1, 4)))
+    logger.info('epoch [{}/{}] time: {}s {} loss: {} org {} acc: {},f1: {}; Tract acc: {},f1: {}'
+                 .format(epoch, args.epoch, run_time, state, round(avg_loss, 4), args.out_path, round(org_acc, 4), round(org_mac_f1, 4), round(tract_acc, 4), round(tract_mac_f1, 4)))
         
     return org_loss_lst, org_acc_lst, org_precision_lst, org_recall_lst, org_f1_lst, org_acc, org_mac_f1, \
            tract_acc, tract_mac_f1, tract_labels_lst, tract_pred_lst

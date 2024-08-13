@@ -8,6 +8,7 @@ import sys
 import os
 import whitematteranalysis as wma
 from pytorch3d.transforms import RotateAxisAngle, Scale, Translate
+import pdb
 
 sys.path.append('../')
 import utils.tract_feat as tract_feat
@@ -102,22 +103,27 @@ class unrelatedHCP_PatchData(data.Dataset):
                     .format(self.cal_equiv_dist, self.use_endpoints_dist))
                 
         # load data
-        # with open(os.path.join(root, '{}.pickle'.format(split)), 'rb') as file: #! bug didn't work
-        with open(os.path.join('../TrainData_800clu800ol/', '{}.pickle'.format(split)), 'rb') as file:
+        with open(os.path.join(root, '{}.pickle'.format(split)), 'rb') as file: #! bug didn't work
+        # with open(os.path.join('../TrainData_800clu800ol/', '{}.pickle'.format(split)), 'rb') as file:
             # Load the data from the file
             data_dict = pickle.load(file)
         self.features = data_dict['feat']
+        print(self.features.shape)
         self.labels = data_dict['label']
+        print(self.labels.shape)
         self.label_names = data_dict['label_name']
+        print(len(self.label_names))
         self.subject_ids = data_dict['subject_id']
+        print(self.subject_ids.shape)
         self.logger.info('Load {} data'.format(self.split))
         
         # calculate brain-level features  [n_subject, n_fiber, n_point, n_feat], labels [n_subject, n_fiber, n_point or 1]
         self.brain_features, self.brain_labels = self._cal_brain_feat()
-        
+        print(self.brain_features.shape)
         # calculate local global features/representations [n_subject*n_fiber, n_point, n_feat], [n_subject*n_fiber, n_point or 1], [n_subject*n_fiber, n_point, n_feat, k]
         # [n_subject*n_fiber, n_point, n_feat], [n_subject*n_fiber, n_point or 1], [n_subject*n_fiber, n_point, n_feat, k], [n_subject, n_point, n_feat, k_global], [n_subject*n_fiber, 1]
         self.org_feat, self.org_label, self.local_feat, self.global_feat, self.new_subidx = self._cal_info_feat()
+        print("check2")
         
 
     def __getitem__(self, index):
@@ -165,6 +171,8 @@ class unrelatedHCP_PatchData(data.Dataset):
         
         num_feat_per_point = self.features.shape[2]
         unique_subject_ids = np.unique(self.subject_ids)
+        print(len(unique_subject_ids))
+        print(unique_subject_ids)
         num_subject = len(unique_subject_ids)
         
         if self.aug_times > 0: # augmented data
@@ -178,7 +186,7 @@ class unrelatedHCP_PatchData(data.Dataset):
                 
         for i_subject, unique_id in enumerate(unique_subject_ids):  # for each subject
             cur_idxs = np.where(self.subject_ids == unique_id)[0]
-            np.random.shuffle(cur_idxs)
+            np.random.shuffle(cur_idxs) #! this is where a random sample is taken from the subject
             cur_select_idxs = cur_idxs[:self.num_fiber]
             cur_features = self.features[cur_select_idxs,:,:]  # [num_fiber_per_brain, num_point_per_fiber, num_feat_per_point]
             cur_labels = self.labels[cur_select_idxs, None]
@@ -267,7 +275,12 @@ class unrelatedHCP_PatchData(data.Dataset):
                 brain_features[i_subject*self.aug_times:(i_subject+1)*self.aug_times, :,:,:] = aug_features
             
             else:
-                brain_features[i_subject,:,:,:] = cur_features
+                try:
+                    brain_features[i_subject,:,:,:] = cur_features
+                except:
+                    print(i_subject)
+                    print(cur_features.shape)
+                    # print(brain_features[i_subject,:,:,:].shape)
             
             if self.use_tracts_training:
                 # map cluster label to tract label
@@ -276,7 +289,12 @@ class unrelatedHCP_PatchData(data.Dataset):
             if self.aug_times > 0:
                 brain_labels[i_subject*self.aug_times:(i_subject+1)*self.aug_times,...] = cur_labels[None,...].repeat(self.aug_times, axis=0)  # [aug_times, num_fiber_per_brain, num_point_per_fiber or 1]
             else:
-                brain_labels[i_subject,...] = cur_labels
+                try:
+                    brain_labels[i_subject,...] = cur_labels
+                except:
+                    a=1
+                    print(cur_labels.shape)
+                    # print(brain_labels[i_subject,...].shape)
         
         if self.aug_times > 0:      
             # save augmentation matrices
@@ -327,6 +345,7 @@ class unrelatedHCP_PatchData(data.Dataset):
             cur_feat = np.transpose(cur_feat,(0,2,1))  #  [n_fiber, n_point, n_feat]->[n_fiber,n_feat,n_point]
             if self.k>0:
                 # local feat
+                # pdb.set_trace()
                 cur_local_feat = cal_local_feat(cur_feat, self.k_ds_rate, self.k, self.use_endpoints_dist, self.cal_equiv_dist)      # [n_fiber*k, n_feat, n_point]
                 cur_local_feat = cur_local_feat.reshape(self.num_fiber, self.k, num_feat_per_point, self.num_point)  # [n_fiber, k, n_feat, n_point]
                 cur_local_feat = np.transpose(cur_local_feat,(0,3,2,1))  # [n_fiber, k, n_feat, n_point]->[n_fiber, n_point, n_feat, k]

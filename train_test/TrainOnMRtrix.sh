@@ -3,13 +3,13 @@
 # Training params
 model_name="dgcnn"            # model
 # epoch=20                        # epoch
-epoch=2                        # epoch
+epoch=20                        # epoch
 # batch_size=1024                # batch size
 batch_size=128                # batch size
 lr=1e-3                        # learning rate
 
 # Data
-input_data="800clu800ol" # training data, 800 clusters + 800 outliers
+input_data=MRtrix # training data, 800 clusters + 800 outliers
 num_f_brain=10000               # the number of streamlines in a brain
 num_p_fiber=15                  # the number of points on a streamline
 rot_ang_lst="45_10_10"          # data rotating

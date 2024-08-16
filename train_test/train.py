@@ -259,9 +259,7 @@ def train_val_DL_net(net):
         train_labels_lst, train_predicted_lst = [], []
         val_labels_lst, val_predicted_lst = [], []
         # trainings
-        print('training')
         for i, data in enumerate(train_loader, start=0):
-            print(f'training {i}')
             total_train_loss, train_labels_lst, train_predicted_lst = \
                 train_val_test_forward(i, data, net, 'train', total_train_loss, train_labels_lst, train_predicted_lst, 
                                        args, device, num_classes, epoch, train_num_batch, train_global_feat=train_global_feat)
@@ -422,7 +420,7 @@ if __name__ == '__main__':
     args.save_knn_neighbors = True
     # paths
     train_val_paths()
-    # Tract cluster mapping
+    #! Tract cluster mapping
     ordered_tract_cluster_mapping_dict = obtain_TractClusterMapping()  # {'tract name': ['cluster_xxx','cluster_xxx', ... 'cluster_xxx']}
     # Record the training process and values
     logger = create_logger(args.out_path)

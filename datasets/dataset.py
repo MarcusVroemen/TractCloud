@@ -8,6 +8,7 @@ import sys
 import os
 import whitematteranalysis as wma
 from pytorch3d.transforms import RotateAxisAngle, Scale, Translate
+import pdb
 
 sys.path.append('../')
 import utils.tract_feat as tract_feat
@@ -102,13 +103,13 @@ class unrelatedHCP_PatchData(data.Dataset):
                     .format(self.cal_equiv_dist, self.use_endpoints_dist))
                 
         # load data
-        # with open(os.path.join(root, '{}.pickle'.format(split)), 'rb') as file: #! bug didn't work
-        with open(os.path.join('../TrainData_800clu800ol/', '{}.pickle'.format(split)), 'rb') as file:
+        with open(os.path.join(root, '{}.pickle'.format(split)), 'rb') as file:
             # Load the data from the file
             data_dict = pickle.load(file)
         self.features = data_dict['feat']
         self.labels = data_dict['label']
-        self.label_names = data_dict['label_name']
+        # pdb.set_trace()
+        #! self.label_names = data_dict['label_name']
         self.subject_ids = data_dict['subject_id']
         self.logger.info('Load {} data'.format(self.split))
         
@@ -148,7 +149,8 @@ class unrelatedHCP_PatchData(data.Dataset):
         return self.org_feat.shape[0]
 
 
-    def _cal_brain_feat(self):
+    def _cal_brain_feat(self, chunk_size=5):
+        """Process data for classification and segmentation in chunks to reduce memory usage."""
         """Process data for classification and segmentation. Get data in both brain and streamline level.
            Brain features are used for calculating the local-global representation.
 
@@ -162,202 +164,189 @@ class unrelatedHCP_PatchData(data.Dataset):
             brain_feature (array):[n_subject, n_fiber, n_point, n_feat] feature in brain-level 
             brain_label (array): [n_subject, n_fiber, n_point or 1] label in brain-level
         """ 
-        
         num_feat_per_point = self.features.shape[2]
         unique_subject_ids = np.unique(self.subject_ids)
         num_subject = len(unique_subject_ids)
+
+        # Initialize lists to store chunk results
+        all_brain_features = []
+        all_brain_labels = []
         
-        if self.aug_times > 0: # augmented data
-            brain_features = np.zeros((num_subject*self.aug_times, self.num_fiber, self.num_point, num_feat_per_point),dtype=np.float32)
-            brain_labels = np.zeros((num_subject*self.aug_times, self.num_fiber,1), dtype=np.int64)
-            aug_matrices = np.zeros((num_subject, self.aug_times, 4, 4), dtype=np.float32)
-        else:  # non-augmented data
-            brain_features = np.zeros((num_subject, self.num_fiber, self.num_point, num_feat_per_point),dtype=np.float32)
-            brain_labels = np.zeros((num_subject, self.num_fiber,1), dtype=np.int64)
-                
-                
-        for i_subject, unique_id in enumerate(unique_subject_ids):  # for each subject
-            cur_idxs = np.where(self.subject_ids == unique_id)[0]
-            np.random.shuffle(cur_idxs)
-            cur_select_idxs = cur_idxs[:self.num_fiber]
-            cur_features = self.features[cur_select_idxs,:,:]  # [num_fiber_per_brain, num_point_per_fiber, num_feat_per_point]
-            cur_labels = self.labels[cur_select_idxs, None]
+        for chunk_start in range(0, num_subject, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, num_subject)
+            current_chunk_size = chunk_end - chunk_start
+
+            if self.aug_times > 0:  # augmented data
+                brain_features = np.zeros((current_chunk_size*self.aug_times, self.num_fiber, self.num_point, num_feat_per_point),dtype=np.float32)
+                brain_labels = np.zeros((current_chunk_size*self.aug_times, self.num_fiber,1), dtype=np.int64)
+                aug_matrices = np.zeros((current_chunk_size, self.aug_times, 4, 4), dtype=np.float32)
+            else:  # non-augmented data
+                brain_features = np.zeros((current_chunk_size, self.num_fiber, self.num_point, num_feat_per_point),dtype=np.float32)
+                brain_labels = np.zeros((current_chunk_size, self.num_fiber,1), dtype=np.int64)
             
-            if self.aug_times > 0:
-                # Augmentation the brain. Note that torch.from_numpy and .numpy() return data sharing the same memory location
-                cur_features = torch.from_numpy(cur_features)  # numpy to tensor
-                aug_features = np.zeros((self.aug_times, *cur_features.shape))  # (aug_times, num_fiber_per_brain, num_point_per_fiber, num_feat_per_point)  
-                for i_aug in range(self.aug_times):
-                    trot = None
-                    cur_angles = []
-                    # rotations
-                    for i, rot_ang in enumerate(self.rot_ang_lst):
-                        try:
-                            angle = ((torch.rand(1) - 0.5)*2*rot_ang).item()  # random angle between [-rot_ang, rot_ang] 
-                        except:
-                            print(rot_ang, type(rot_ang))
-                            angle = ((torch.rand(1) - 0.5)*2*0).item()
-                        try:
+            for i, unique_id in enumerate(unique_subject_ids[chunk_start:chunk_end]):
+                # pdb.set_trace()
+                cur_idxs = np.where(self.subject_ids == unique_id)[0]
+                np.random.shuffle(cur_idxs)
+                cur_select_idxs = cur_idxs[:self.num_fiber]
+                cur_features = self.features[cur_select_idxs,:,:]
+                cur_labels = self.labels[cur_select_idxs, None]
+
+                if self.aug_times > 0:
+                    cur_features = torch.from_numpy(cur_features)
+                    aug_features = np.zeros((self.aug_times, *cur_features.shape))
+
+                    for i_aug in range(self.aug_times):
+                        trot = None
+                        cur_angles = []
+
+                        # rotations, scales, translations (same as in the original function)
+                        for i, rot_ang in enumerate(self.rot_ang_lst):
+                            angle = ((torch.rand(1) - 0.5) * 2 * rot_ang).item()
                             rot_axis_name = get_rot_axi(self.aug_axis_lst[i])
-                        except:
-                            print(self.rot_ang_lst)
-                            print(len(self.aug_axis_lst), i)
-                            rot_axis_name = get_rot_axi(self.aug_axis_lst[-1])
-                            
-                        cur_trot = RotateAxisAngle(angle=angle, axis=rot_axis_name, degrees=True)  #  rotate around the axis by the angle
-                        cur_angles.append(round(angle,1))
-                        if trot is None:
-                            trot = cur_trot
-                        else:
-                            trot = trot.compose(cur_trot)
-                            
-                    # scales
-                    if self.scale_ratio_range[0] == 0 and self.scale_ratio_range[1] == 0:
-                        scale_r = 1.0
-                    else:
-                        try:
-                            scale_r = torch.distributions.Uniform(1-self.scale_ratio_range[0], 1+self.scale_ratio_range[1]).sample().item()  # random scale between [1-scale_ratio_range[0], 1+scale_ratio_range[1]]
-                            # print("scale_r is: ", scale_r)
-                        except:
-                            # print(self.scale_ratio_range)
-                            # print(type(self.scale_ratio_range[0]))
-                            # print(type(self.scale_ratio_range[1]))
-                            scale_r=1.0
-                            # scale_r = torch.distributions.Uniform(1-int(self.scale_ratio_range[0]), 1+int(self.scale_ratio_range[1])).sample().item()  # random scale between [1-scale_ratio_range[0], 1+scale_ratio_range[1]]
-                            
-                    cur_trot = Scale(scale_r) 
-                    trot = trot.compose(cur_trot)
-                        
-                    # translations
-                    LR_trans = ((torch.rand(1) - 0.5)*2*self.trans_dis).item() # random translation between [-trans_dis, +trans_dis]
-                    AP_trans = ((torch.rand(1) - 0.5)*2*self.trans_dis).item() # random translation between [-trans_dis, +trans_dis] 
-                    SI_trans = ((torch.rand(1) - 0.5)*2*self.trans_dis).item() # random translation between [-trans_dis, +trans_dis]
-                    cur_trot = Translate(LR_trans, AP_trans, SI_trans)
-                    trot = trot.compose(cur_trot)
-                        
-                    aug_matrices[i_subject,i_aug,:,:] = np.array(trot.get_matrix())
-                    aug_feat = trot.transform_points(cur_features).numpy()  # rotate and then convert tensor to numpy
-                    
-                    scale_r, LR_trans, AP_trans, SI_trans = round(scale_r,3),round(LR_trans,1),round(AP_trans,1),round(SI_trans,1)
-                    if self.recenter:
-                        aug_feat = center_tractography(self.root, aug_feat)
-                        self.logger.info('Subject idx {} (unique ID {}, aug {}): rotation {}, scale {}, translation {} (centered). Aug axis order: {}'
-                                        .format(i_subject, unique_id, i_aug, cur_angles, scale_r, [LR_trans, AP_trans, SI_trans], self.aug_axis_lst))
-                    else:
-                        self.logger.info('Subject idx {} (unique ID {}, aug {}): rotation {}, scale {}, translation {}. Aug axis order: {}'
-                                        .format(i_subject, unique_id, i_aug, cur_angles, scale_r, [LR_trans, AP_trans, SI_trans], self.aug_axis_lst))
-                    aug_features[i_aug,...] = aug_feat
-                    # save augmented data
-                    if self.save_aug_data and i_subject < 5: # only save the first 5 subjects
-                        aug_data_save_path = os.path.join(self.out_path,'AugmentedData',self.split)
-                        makepath(aug_data_save_path)
-                        aug_feat_pd = array2vtkPolyData(aug_feat)
+                            cur_trot = RotateAxisAngle(angle=angle, axis=rot_axis_name, degrees=True)
+                            cur_angles.append(round(angle, 1))
+                            trot = trot.compose(cur_trot) if trot else cur_trot
+
+                        scale_r = torch.distributions.Uniform(1 - self.scale_ratio_range[0], 1 + self.scale_ratio_range[1]).sample().item() if self.scale_ratio_range[0] or self.scale_ratio_range[1] else 1.0
+                        trot = trot.compose(Scale(scale_r))
+
+                        LR_trans = ((torch.rand(1) - 0.5) * 2 * self.trans_dis).item()
+                        AP_trans = ((torch.rand(1) - 0.5) * 2 * self.trans_dis).item()
+                        SI_trans = ((torch.rand(1) - 0.5) * 2 * self.trans_dis).item()
+                        trot = trot.compose(Translate(LR_trans, AP_trans, SI_trans))
+
+                        aug_matrices[i, i_aug, :, :] = np.array(trot.get_matrix())
+                        aug_feat = trot.transform_points(cur_features.float()).numpy()
+
                         if self.recenter:
-                            aug_feat_name = 'SubID{}Aug{}_RotR{}A{}S{}_Scale{}_TransR{}A{}S{}_Recenter'\
-                                .format(i_subject, i_aug, cur_angles[0],cur_angles[1],cur_angles[2],
-                                        scale_r, LR_trans, AP_trans, SI_trans)
+                            aug_feat = center_tractography(self.root, aug_feat) #!!!! compute this for 
+                            self.logger.info('Subject idx {} (unique ID {}, aug {}): rotation {}, scale {}, translation {} (centered). Aug axis order: {}'
+                                            .format(i_subject, unique_id, i_aug, cur_angles, scale_r, [LR_trans, AP_trans, SI_trans], self.aug_axis_lst))
                         else:
-                            aug_feat_name = 'SubID{}Aug{}_RotR{}A{}S{}_Scale{}_TransR{}A{}S{}'\
-                                .format(i_subject, i_aug, cur_angles[0],cur_angles[1],cur_angles[2],
-                                        scale_r, LR_trans, AP_trans, SI_trans)                           
-                        aug_feat_name = aug_feat_name.replace('.', '`') + '.vtk'
-                        wma.io.write_polydata(aug_feat_pd, os.path.join(aug_data_save_path,aug_feat_name))  
-                        print('Save augmented data to {}'.format(os.path.join(aug_data_save_path,aug_feat_name)))
-    
-                brain_features[i_subject*self.aug_times:(i_subject+1)*self.aug_times, :,:,:] = aug_features
-            
-            else:
-                brain_features[i_subject,:,:,:] = cur_features
-            
-            if self.use_tracts_training:
-                # map cluster label to tract label
-                ordered_tract_cluster_mapping_dict = obtain_TractClusterMapping()  # {'tract name': ['cluster_xxx','cluster_xxx', ... 'cluster_xxx']} 
-                cur_labels = cluster2tract_label(cur_labels, ordered_tract_cluster_mapping_dict, output_lst=False)
-            if self.aug_times > 0:
-                brain_labels[i_subject*self.aug_times:(i_subject+1)*self.aug_times,...] = cur_labels[None,...].repeat(self.aug_times, axis=0)  # [aug_times, num_fiber_per_brain, num_point_per_fiber or 1]
-            else:
-                brain_labels[i_subject,...] = cur_labels
-        
-        if self.aug_times > 0:      
-            # save augmentation matrices
-            np.save(os.path.join(self.out_path, '{}_aug_matrices.npy'.format(self.split)), aug_matrices)
-            if self.include_org_data:
-                assert self.num_fiber == 10000 # only support 10000 fibers for now, since each original brain has 10000 fibers
-                org_features = self.features.reshape(num_subject, self.num_fiber, self.num_point, num_feat_per_point)
-                org_labels = self.labels.reshape(num_subject, self.num_fiber, 1) 
-                brain_features = np.concatenate((brain_features, org_features), axis=0)
-                brain_labels = np.concatenate((brain_labels, org_labels), axis=0)
-                self.logger.info('Include {} original data in the {} data.'.format(org_features.shape[0], self.split))
+                            self.logger.info('Subject idx {} (unique ID {}, aug {}): rotation {}, scale {}, translation {}. Aug axis order: {}'
+                                            .format(i_subject, unique_id, i_aug, cur_angles, scale_r, [LR_trans, AP_trans, SI_trans], self.aug_axis_lst))
+
+                        aug_features[i_aug, ...] = aug_feat
+
+                    brain_features[i * self.aug_times:(i + 1) * self.aug_times, :, :, :] = aug_features
+
+                else:
+                    brain_features[i, :, :, :] = cur_features
+
+                if self.use_tracts_training:
+                    ordered_tract_cluster_mapping_dict = obtain_TractClusterMapping()
+                    cur_labels = cluster2tract_label(cur_labels, ordered_tract_cluster_mapping_dict, output_lst=False)
+                
+                if self.aug_times > 0:
+                    brain_labels[i * self.aug_times:(i + 1) * self.aug_times, ...] = cur_labels[None, ...].repeat(self.aug_times, axis=0)
+                else:
+                    brain_labels[i, ...] = cur_labels
+
+            # Append results from this chunk
+            all_brain_features.append(brain_features)
+            all_brain_labels.append(brain_labels)
+
+        # Concatenate all chunks into final arrays
+        brain_features = np.concatenate(all_brain_features, axis=0)
+        brain_labels = np.concatenate(all_brain_labels, axis=0)
         
         return brain_features, brain_labels
         
         
-    def _cal_info_feat(self):
+    def _cal_info_feat(self, chunk_size=5):
         """
-        Calculate local-global representations
+        Calculate local-global representations using chunk processing to reduce memory usage.
+        
         Args (self):
             n_subject=num_unique_subjects*self.aug_times
-            brain_feature (array):[n_subject, n_fiber, n_point, n_feat] feature in brain-level 
+            brain_feature (array): [n_subject, n_fiber, n_point, n_feat] feature in brain-level 
             brain_label (array): [n_subject, n_fiber, n_point or 1] label in brain-level
             k (int, optional): How many k nearest neighbors are needed.
+        
         Returns:
             fiber_feat (array): [n_subject*n_fiber, n_point, n_feat] feature in fiber-level
             fiber_label (array): [n_subject*n_fiber, n_point or 1] label in fiber-level
             local_feat (array): [n_subject*n_fiber, n_point, n_feat, k] k nearest neighbor streamline feature (local)
             global_feat (array): [n_subject, n_point, n_feat, k_global] randomly selected streamline feature (global)
-        """                   
+        """
         
         num_subjects = self.brain_features.shape[0]
         num_feat_per_point = self.brain_features.shape[-1]
-        if self.k>0:
-            local_feat = np.zeros((*self.brain_features.shape, self.k), dtype=np.float32) # [n_subject, n_fiber, n_point, n_feat, k]
-        else: # will be discarded later in the training
-            local_feat = np.zeros((*self.brain_features.shape, 1), dtype=np.float32) # [n_subject, n_fiber, n_point, n_feat, 1]
-            local_feat = local_feat.reshape(-1, self.num_point, num_feat_per_point, 1)  # [n_subject*n_fiber, n_point, n_feat, 1]
-        if self.k_global>0:
-            global_feat = np.zeros((num_subjects, self.num_point, num_feat_per_point, self.k_global), dtype=np.float32) # [n_subject, n_point, n_feat, k_global]
-        else:
-            global_feat = np.zeros((num_subjects, self.num_point, num_feat_per_point, 1), dtype=np.float32) # [n_subject, n_point, n_feat, 1]
-        # calculate new sub idx no where what the value of k and k_global are.
-        new_subidx = np.zeros((num_subjects, self.num_fiber), dtype=np.int64)  # [n_subject, n_fiber]
-        # iterate over augmented subjects
-        for cur_idx in range(num_subjects):
-            time_start = time.time()
-            cur_feat = self.brain_features[cur_idx,...]  # [n_fiber,n_point,n_feat]
-            cur_feat = np.transpose(cur_feat,(0,2,1))  #  [n_fiber, n_point, n_feat]->[n_fiber,n_feat,n_point]
-            if self.k>0:
-                # local feat
-                cur_local_feat = cal_local_feat(cur_feat, self.k_ds_rate, self.k, self.use_endpoints_dist, self.cal_equiv_dist)      # [n_fiber*k, n_feat, n_point]
-                cur_local_feat = cur_local_feat.reshape(self.num_fiber, self.k, num_feat_per_point, self.num_point)  # [n_fiber, k, n_feat, n_point]
-                cur_local_feat = np.transpose(cur_local_feat,(0,3,2,1))  # [n_fiber, k, n_feat, n_point]->[n_fiber, n_point, n_feat, k]
-            if self.k_global>0:
-                # global feat
-                random_idx = np.random.randint(0, cur_feat.shape[0], self.k_global)
-                cur_global_feat = cur_feat[random_idx,...]  # [k_global, n_feat, n_point]. This is the random feature for all fibers in a test subject
-                cur_global_feat = cur_global_feat.transpose(2,1,0)  # [n_point, n_feat, k_global]
-            # new sub idx
-            cur_subidx = np.ones((cur_feat.shape[0]), dtype=np.int64)*cur_idx   # [n_fiber,]
-            time_end = time.time()
-            if self.aug_times >0:
-                self.logger.info('Subject {} Aug {} with {} fibers feature calculation time: {:.2f} s'
-                                .format(cur_idx//self.aug_times, cur_idx%self.aug_times, self.num_fiber, time_end-time_start))
+
+        all_local_feat = []
+        all_global_feat = []
+        all_fiber_feat = []
+        all_fiber_label = []
+        all_new_subidx = []
+
+        for chunk_start in range(0, num_subjects, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, num_subjects)
+            current_chunk_size = chunk_end - chunk_start
+
+            if self.k > 0:
+                local_feat = np.zeros((current_chunk_size, self.num_fiber, self.num_point, num_feat_per_point, self.k), dtype=np.float32)
             else:
-                self.logger.info('Subject {} (No Aug) with {} fibers feature calculation time: {:.2f} s'
-                                .format(cur_idx, self.num_fiber, time_end-time_start))
-            if self.k>0:
-                local_feat[cur_idx,...] = cur_local_feat
-            if self.k_global>0:
-                global_feat[cur_idx,...] = cur_global_feat
-            new_subidx[cur_idx,...] = cur_subidx  
-                
-        if self.k>0:
-            local_feat = local_feat.reshape(-1, self.num_point, num_feat_per_point, self.k)  # [n_subject*n_fiber, n_point, n_feat, k]
-        new_subidx = new_subidx.reshape(-1, 1)  # [n_subject*n_fiber, 1]
-        
-        # original features and labels
-        fiber_feat = self.brain_features.reshape(-1, self.num_point, num_feat_per_point)  # [n_subject*n_fiber, n_point, n_feat]
-        fiber_label = self.brain_labels.reshape(-1, 1)  # [n_subject*n_fiber, 1]
-        
+                local_feat = np.zeros((current_chunk_size, self.num_fiber, self.num_point, num_feat_per_point, 1), dtype=np.float32)
+                local_feat = local_feat.reshape(-1, self.num_point, num_feat_per_point, 1)
+
+            if self.k_global > 0:
+                global_feat = np.zeros((current_chunk_size, self.num_point, num_feat_per_point, self.k_global), dtype=np.float32)
+            else:
+                global_feat = np.zeros((current_chunk_size, self.num_point, num_feat_per_point, 1), dtype=np.float32)
+
+            new_subidx = np.zeros((current_chunk_size, self.num_fiber), dtype=np.int64)
+
+            for i, cur_idx in enumerate(range(chunk_start, chunk_end)):
+                time_start = time.time()
+                cur_feat = self.brain_features[cur_idx, ...]
+                cur_feat = np.transpose(cur_feat, (0, 2, 1))
+
+                if self.k > 0:
+                    cur_local_feat = cal_local_feat(cur_feat, self.k_ds_rate, self.k, self.use_endpoints_dist, self.cal_equiv_dist) #!
+                    cur_local_feat = cur_local_feat.reshape(self.num_fiber, self.k, num_feat_per_point, self.num_point)
+                    cur_local_feat = np.transpose(cur_local_feat, (0, 3, 2, 1))
+
+                if self.k_global > 0:
+                    random_idx = np.random.randint(0, cur_feat.shape[0], self.k_global)
+                    cur_global_feat = cur_feat[random_idx, ...]
+                    cur_global_feat = cur_global_feat.transpose(2, 1, 0)
+
+                cur_subidx = np.ones((cur_feat.shape[0]), dtype=np.int64) * cur_idx
+                time_end = time.time()
+
+                if self.aug_times > 0:
+                    self.logger.info('Subject {} Aug {} with {} fibers feature calculation time: {:.2f} s'
+                                    .format(cur_idx // self.aug_times, cur_idx % self.aug_times, self.num_fiber, time_end - time_start))
+                else:
+                    self.logger.info('Subject {} (No Aug) with {} fibers feature calculation time: {:.2f} s'
+                                    .format(cur_idx, self.num_fiber, time_end - time_start))
+
+                if self.k > 0:
+                    local_feat[i, ...] = cur_local_feat
+                if self.k_global > 0:
+                    global_feat[i, ...] = cur_global_feat
+                new_subidx[i, ...] = cur_subidx
+
+            if self.k > 0:
+                local_feat = local_feat.reshape(-1, self.num_point, num_feat_per_point, self.k)
+            new_subidx = new_subidx.reshape(-1, 1)
+
+            fiber_feat = self.brain_features[chunk_start:chunk_end].reshape(-1, self.num_point, num_feat_per_point)
+            fiber_label = self.brain_labels[chunk_start:chunk_end].reshape(-1, 1)
+
+            all_local_feat.append(local_feat)
+            all_global_feat.append(global_feat)
+            all_fiber_feat.append(fiber_feat)
+            all_fiber_label.append(fiber_label)
+            all_new_subidx.append(new_subidx)
+
+        local_feat = np.concatenate(all_local_feat, axis=0)
+        global_feat = np.concatenate(all_global_feat, axis=0)
+        fiber_feat = np.concatenate(all_fiber_feat, axis=0)
+        fiber_label = np.concatenate(all_fiber_label, axis=0)
+        new_subidx = np.concatenate(all_new_subidx, axis=0)
+
         return fiber_feat, fiber_label, local_feat, global_feat, new_subidx
     
 

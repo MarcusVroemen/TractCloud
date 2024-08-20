@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 sys.path.append('../')
+sys.path.append('../../')
 import time
 import h5py
 import numpy as np
@@ -259,9 +260,7 @@ def train_val_DL_net(net):
         train_labels_lst, train_predicted_lst = [], []
         val_labels_lst, val_predicted_lst = [], []
         # trainings
-        print('training')
         for i, data in enumerate(train_loader, start=0):
-            print(f'training {i}')
             total_train_loss, train_labels_lst, train_predicted_lst = \
                 train_val_test_forward(i, data, net, 'train', total_train_loss, train_labels_lst, train_predicted_lst, 
                                        args, device, num_classes, epoch, train_num_batch, train_global_feat=train_global_feat)
@@ -344,8 +343,8 @@ def meters(epoch, num_batch, total_loss, labels_lst, predicted_lst,
     tract_pred_lst = cluster2tract_label(predicted_lst, ordered_tract_cluster_mapping_dict)
     tract_acc, _, _, tract_mac_f1 = calculate_acc_prec_recall_f1(tract_labels_lst, tract_pred_lst)   
     
-    logger.info('epoch [{}/{}] time: {}s {} loss: {} org (800clusters+800outliers) acc: {},f1: {}; Tract acc: {},f1: {}'
-                 .format(epoch, args.epoch, run_time, state, round(avg_loss, 4), round(org_acc, 4), round(org_mac_f1, 4), round(tract_acc, 4), round(tract_mac_f1, 4)))
+    logger.info('epoch [{}/{}] time: {}s {} loss: {} {} acc: {},f1: {}; Tract acc: {},f1: {}'
+                 .format(epoch, args.epoch, run_time, state, round(avg_loss, 4), args.atlas, round(org_acc, 4), round(org_mac_f1, 4), round(tract_acc, 4), round(tract_mac_f1, 4)))
         
     return org_loss_lst, org_acc_lst, org_precision_lst, org_recall_lst, org_f1_lst, org_acc, org_mac_f1, \
            tract_acc, tract_mac_f1, tract_labels_lst, tract_pred_lst
@@ -381,7 +380,7 @@ def results_logging(args, logger, eval_state, label_names, org_labels_lst, org_p
             tract_label_best_acc,_,_,tract_label_best_mac_f1 = calculate_acc_prec_recall_f1(tract_labels_lst, tract_predicted_lst)
         except:
             logger.info('Warning!! Number of classes, {}, does not match size of target_names, {}. Try specifying the labels parameter'
-                         .format(np.unique(np.array(tract_predicted_lst)).shape[0], len(tract_label_names_str))) 
+                        .format(np.unique(np.array(tract_predicted_lst)).shape[0], len(tract_label_names_str)))
     
     # accuracy, f1    
     try:
@@ -413,6 +412,9 @@ if __name__ == '__main__':
     args.manualSeed = 0 
     print("Random Seed: ", args.manualSeed)
     fix_seed(args.manualSeed)
+    # Adjustment to get training 
+    # args.recenter=False #TODO compute centers later on
+    args.include_org_data=False
     # adaptively change the args
     args = adaptive_args(args)
     # convert str to num
@@ -433,6 +435,7 @@ if __name__ == '__main__':
         # load data
         train_loader, val_loader, label_names, num_classes, train_data_size, val_data_size, eval_state, train_global_feat, val_global_feat \
             = load_batch_data()
+        print("data loaded")
         # model setting
         DL_model = load_model(args, num_classes, device)
         optimizer, scheduler = load_settings(DL_model)

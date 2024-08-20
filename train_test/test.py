@@ -85,6 +85,9 @@ if __name__ == '__main__':
     args.manualSeed = 0 
     print("Random Seed: ", args.manualSeed)
     fix_seed(args.manualSeed)
+    #
+    print(args.input_path)
+    args.input_path="/media/volume/HCP_diffusion_MV/TrainData_MRtrix_100" #TODO why is this necessary
     # adaptively change the args
     args = adaptive_args(args)
     # paths
@@ -101,7 +104,8 @@ if __name__ == '__main__':
     
     # Test on best org and tract weights separately
     time_start = time.time()
-    weight_prefix_lst = ['org', 'tract']
+    # weight_prefix_lst = ['org', 'tract']
+    weight_prefix_lst = ['org']
     for weight_prefix in weight_prefix_lst:  # load best weight one by one
         # model setting
         args.weight_path = os.path.join(args.out_path, 'best_{}_{}_model.pth'.format(weight_prefix, args.best_metric))

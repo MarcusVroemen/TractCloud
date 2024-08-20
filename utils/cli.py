@@ -23,7 +23,7 @@ def create_parser():
     parser.add_argument('--k_global', type=int, default=500, help='Global streamlines (k_global). The number of streamlines (in streamline level) for random sampling')
     parser.add_argument('--k_point_level', type=int, default=5, help='The number of neighbor points (in point level) on one streamline')
     # Training parameters
-    parser.add_argument('--save_step', type=int, default=1, help='The interval of saving weights')
+    parser.add_argument('--save_step', type=int, default=5, help='The interval of saving weights')
     parser.add_argument('--num_workers', type=int, help='number of data loading workers', default=4)
     parser.add_argument('--emb_dims', type=int, default=1024, metavar='N',help='Dimension of embeddings')
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
@@ -51,6 +51,9 @@ def create_parser():
     parser.add_argument('--recenter', default=False, action='store_true', help='Recenter the data use the center of mass')
     parser.add_argument('--include_org_data', default=False, action='store_true', help='Include original data when augmenting data')
     
+    parser.add_argument('--connectome', default=False, action='store_true', help='Testing on data returns connectomes and metrics')
+    parser.add_argument('--atlas', type=str, default='org (800clusters+800outliers)', help='Atlas used')
+    # parser.add_argument('--atlas', type=str, default='DK (85x85 labels)', help='Atlas used')
     return parser
 
 

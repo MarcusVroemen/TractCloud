@@ -86,7 +86,7 @@ if __name__ == '__main__':
     print("Random Seed: ", args.manualSeed)
     fix_seed(args.manualSeed)
     #
-    print(args.input_path)
+    print(args.input_path, args.connectome)
     args.input_path="/media/volume/HCP_diffusion_MV/TrainData_MRtrix_100" #TODO why is this necessary
     # adaptively change the args
     args = adaptive_args(args)
@@ -104,8 +104,11 @@ if __name__ == '__main__':
     
     # Test on best org and tract weights separately
     time_start = time.time()
-    # weight_prefix_lst = ['org', 'tract']
-    weight_prefix_lst = ['org']
+    if args.connectome:
+        weight_prefix_lst = ['org']
+    else:
+        weight_prefix_lst = ['org', 'tract']
+        
     for weight_prefix in weight_prefix_lst:  # load best weight one by one
         # model setting
         args.weight_path = os.path.join(args.out_path, 'best_{}_{}_model.pth'.format(weight_prefix, args.best_metric))
@@ -120,8 +123,11 @@ if __name__ == '__main__':
             tract_predicted_lst = cluster2tract_label(predicted_lst, ordered_tract_cluster_mapping_dict)
     
     # log results
-    results_logging(args, logger, eval_state, label_names, org_labels_lst, org_predicted_lst, 
-                    tract_labels_lst, tract_predicted_lst, ordered_tract_cluster_mapping_dict)
+    if args.connectome:
+        results_logging(args, logger, eval_state, label_names, org_labels_lst, org_predicted_lst, None, None, None)
+    else:
+        results_logging(args, logger, eval_state, label_names, org_labels_lst, org_predicted_lst, 
+                        tract_labels_lst, tract_predicted_lst, ordered_tract_cluster_mapping_dict)
 
     # total processing time
     time_end = time.time() 

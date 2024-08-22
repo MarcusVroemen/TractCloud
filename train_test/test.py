@@ -39,8 +39,11 @@ def load_batch_data():
 
     # test random feat
     test_global_feat = test_dataset.global_feat
-
-    return test_loader, label_names, num_classes, test_data_size, eval_state, test_global_feat 
+    
+    # Samples per class for class-balanced loss
+    samples_per_class = test_dataset.samples_per_class
+    
+    return test_loader, label_names, num_classes, test_data_size, eval_state, test_global_feat, samples_per_class 
 
 
 def test_DL_net(net):
@@ -100,7 +103,7 @@ if __name__ == '__main__':
     logger.info(args)
     logger.info('=' * 55)
     # load data
-    test_loader, label_names, num_classes, test_data_size, eval_state, test_global_feat = load_batch_data()
+    test_loader, label_names, num_classes, test_data_size, eval_state, test_global_feat, samples_per_class = load_batch_data()
     
     # Test on best org and tract weights separately
     time_start = time.time()

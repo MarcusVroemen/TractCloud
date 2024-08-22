@@ -53,7 +53,9 @@ def create_parser():
     
     parser.add_argument('--connectome', default=False, action='store_true', help='Testing on data returns connectomes and metrics')
     parser.add_argument('--atlas', type=str, default='org (800clusters+800outliers)', help='Atlas used')
-    # parser.add_argument('--atlas', type=str, default='DK (85x85 labels)', help='Atlas used')
+    parser.add_argument('--class_weighting', type=float, default=0, help='Class weights, 0 is no weights, scales quadratically')
+    parser.add_argument('--encoding', type=str, default='default', help='Method of encoding 2D connectome labels')
+    
     return parser
 
 

@@ -12,6 +12,7 @@ import torch.nn.parallel
 import torch.optim as optim
 import torch.utils.data
 import torch.nn.functional as F
+from torch.nn import NLLLoss
 
 from datasets.dataset import unrelatedHCP_PatchData
 from models.pointnet import PointNetCls
@@ -20,6 +21,7 @@ from utils.logger import create_logger
 from utils.metrics_plots import classify_report, process_curves, calculate_acc_prec_recall_f1, best_swap, save_best_weights, plot_connectomes
 from utils.funcs import round_decimal, unify_path, makepath, fix_seed, obtain_TractClusterMapping, cluster2tract_label, save_info_feat, str2num
 from utils.cli import create_parser, save_args, adaptive_args
+from utils.metrics_connectome import *
 
 def load_datasets(eval_split, args, test=False, logger=None):
     """load train and validation data"""
@@ -42,7 +44,8 @@ def load_datasets(eval_split, args, test=False, logger=None):
                 cal_equiv_dist=args.cal_equiv_dist,
                 k_ds_rate=args.k_ds_rate,
                 recenter=args.recenter,
-                include_org_data=args.include_org_data)
+                include_org_data=args.include_org_data,
+                encoding=args.encoding)
     else:
         train_dataset = None
         
@@ -63,7 +66,8 @@ def load_datasets(eval_split, args, test=False, logger=None):
         cal_equiv_dist=args.cal_equiv_dist,
         k_ds_rate=args.k_ds_rate,
         recenter=args.recenter,
-        include_org_data=args.include_org_data)
+        include_org_data=args.include_org_data,
+        encoding=args.encoding)
 
     return train_dataset, eval_dataset
 
@@ -106,7 +110,10 @@ def load_batch_data():
     train_global_feat = train_dataset.global_feat
     val_global_feat = val_dataset.global_feat
     
-    return train_loader, val_loader, label_names, num_classes, train_data_size, val_data_size, eval_state, train_global_feat, val_global_feat
+    # Samples per class for class-balanced loss
+    samples_per_class = train_dataset.samples_per_class
+    
+    return train_loader, val_loader, label_names, num_classes, train_data_size, val_data_size, eval_state, train_global_feat, val_global_feat, samples_per_class
 
 
 def load_model(args, num_classes, device, test=False):
@@ -148,7 +155,7 @@ def load_settings(DL_model):
 
 
 def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst, predicted_lst, args, device, num_classes, epoch=-1, num_batch=-1,
-                           train_global_feat=None, eval_global_feat=None):
+                           train_global_feat=None, eval_global_feat=None, samples_per_class=None):
     if state == 'test_realdata':
         points, klocal_feat_set = data
     else:
@@ -211,12 +218,38 @@ def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst, p
     elif args.model_name == 'pointnet':
         pred,_,_=net(points, info_point_set)
     else:
-        raise ValueError('Please input valid model name dgcnn | pointnet')
+        raise ValueError('Please input valid model name dgcnn | pointnet')       
     pred = pred.view(-1, num_classes)  # seg (B,N_point,Cls) -> (B*N_point,Cls); cls (B,Cls) -> (B,Cls)
     
     if state != 'test_realdata':
-        label = label.view(-1,1)[:,0]      # seg (B*N_point); cls (B)
-        loss = F.nll_loss(pred, label)
+        label = label.view(-1,1)[:,0] 
+            
+        if args.class_weighting and state=='train':  # If class_weighting is provided and not None or 0
+            
+            # Compute weights based on samples per class, and a weighting factor
+            # 0 sets all weights to 1 (equal), 1 is proportional to class inbalance, higher more important
+
+            min_samples = int(np.quantile(np.asarray(samples_per_class), 0.25))  # Example threshold for minimum samples per class
+            max_samples = int(np.quantile(np.asarray(samples_per_class), 0.75))  # Example threshold for maximum samples per class
+            max_samples = 10000  # Example threshold for maximum samples per class
+
+            # Clip the number of samples to be within a reasonable range
+            clipped_samples_per_class = torch.clamp(samples_per_class, min=min_samples, max=max_samples)
+
+            # Recalculate the weights using the clipped values
+            # class_weights = ((torch.sum(clipped_samples_per_class) / (num_classes * clipped_samples_per_class))+1) ** args.class_weighting
+            class_weights = ((1-(clipped_samples_per_class/torch.max(clipped_samples_per_class)))+1) ** args.class_weighting # sparse become 2, and populated 1
+            class_weights = class_weights.to(device)
+            nll_loss_fn = torch.nn.NLLLoss(weight=class_weights)
+            
+            # import pdb
+            # pdb.set_trace()
+        else:
+            # Define the loss function without weights
+            nll_loss_fn = torch.nn.NLLLoss()
+
+        loss = nll_loss_fn(pred, label)
+            
     if state == 'train':
         loss.backward()
         optimizer.step()
@@ -260,7 +293,6 @@ def train_val_DL_net(net):
         org_best_f1_val_pred_lst = []
     
     for epoch in range(args.epoch):
-        print(f'epoch is {epoch}')
         train_start_time = time.time()
         epoch += 1
         total_train_loss, total_val_loss = 0, 0
@@ -270,12 +302,11 @@ def train_val_DL_net(net):
         for i, data in enumerate(train_loader, start=0):
             total_train_loss, train_labels_lst, train_predicted_lst = \
                 train_val_test_forward(i, data, net, 'train', total_train_loss, train_labels_lst, train_predicted_lst, 
-                                       args, device, num_classes, epoch, train_num_batch, train_global_feat=train_global_feat)
+                                       args, device, num_classes, epoch, train_num_batch, train_global_feat=train_global_feat, samples_per_class=samples_per_class)
                 
         if args.scheduler == 'step':
             scheduler.step()
         # train metric calculation
-        print('Metric calculation')
         train_end_time = time.time()
         train_time = round(train_end_time-train_start_time, 2)
         train_loss_lst, train_acc_lst, train_precision_lst, train_recall_lst, train_f1_lst,_,_,_,_,_,_ = \
@@ -358,8 +389,8 @@ def meters(epoch, num_batch, total_loss, labels_lst, predicted_lst,
     # connectome instead of tract parcellation
     else:
         tract_labels_lst, tract_pred_lst, tract_acc, tract_mac_f1 = None, None, None, None
-        logger.info('epoch [{}/{}] time: {}s {} loss: {} {} acc: {},f1: {}'
-                    .format(epoch, args.epoch, run_time, state, round(avg_loss, 4), args.atlas, round(org_acc, 4), round(org_mac_f1, 4)))
+        logger.info('epoch [{}/{}] time: {}s {} loss: {} {} acc: {},f1: {}, prec: {}, rec: {}'
+                    .format(epoch, args.epoch, run_time, state, round(avg_loss, 4), args.atlas, round(org_acc, 4), round(org_mac_f1, 4), round(org_mac_recall, 4), round(org_mac_f1, 4)))
         
     return org_loss_lst, org_acc_lst, org_precision_lst, org_recall_lst, org_f1_lst, org_acc, org_mac_f1, \
            tract_acc, tract_mac_f1, tract_labels_lst, tract_pred_lst
@@ -461,7 +492,7 @@ if __name__ == '__main__':
     logger.info('=' * 55)
     if not args.save_args_only:
         # load data
-        train_loader, val_loader, label_names, num_classes, train_data_size, val_data_size, eval_state, train_global_feat, val_global_feat \
+        train_loader, val_loader, label_names, num_classes, train_data_size, val_data_size, eval_state, train_global_feat, val_global_feat, samples_per_class \
             = load_batch_data()
         print("data loaded")
         # model setting

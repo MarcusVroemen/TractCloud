@@ -73,7 +73,7 @@ class RealData_PatchData(data.Dataset):
 class unrelatedHCP_PatchData(data.Dataset):
     def __init__(self, root, out_path, logger, split='train', num_fiber_per_brain=10000,num_point_per_fiber=15, 
                  use_tracts_training=False, k=0, k_global=0, rot_ang_lst=[0,0,0], scale_ratio_range=[0,0], trans_dis=0.0,
-                 aug_axis_lst=['LR','AP', 'SI'], aug_times=10, cal_equiv_dist=False, k_ds_rate=0.1, recenter=False, include_org_data=False):        
+                 aug_axis_lst=['LR','AP', 'SI'], aug_times=10, cal_equiv_dist=False, k_ds_rate=0.1, recenter=False, include_org_data=False, encoding='default'):        
         self.root = root
         self.out_path = out_path
         self.split = split
@@ -106,10 +106,23 @@ class unrelatedHCP_PatchData(data.Dataset):
             # Load the data from the file
             data_dict = pickle.load(file)
         self.features = data_dict['feat']
-        self.labels = data_dict['label']
-        self.label_names = data_dict['label_name']
+        if encoding=='default':
+            self.labels = data_dict['label']
+            self.label_names = data_dict['label_name']
+        else: # to accommodate for other encodings such as symmetric
+            self.labels = data_dict[f'label_{encoding}']
+            self.label_names = data_dict[f'label_name_{encoding}']
         self.subject_ids = data_dict['subject_id']
         self.logger.info('Load {} data'.format(self.split))
+
+        # Compute the number of samples per class
+        self.num_classes = len(np.unique(self.label_names))
+        self.samples_per_class = self._compute_samples_per_class()
+        # import pdb
+        # pdb.set_trace()
+        
+        if self.samples_per_class.sum().item() != len(self.features):
+            raise ValueError(f"Sum of samples_per_class ({samples_per_class.sum().item()}) does not match the number of features ({len(self.features)}).")
         
         # calculate brain-level features  [n_subject, n_fiber, n_point, n_feat], labels [n_subject, n_fiber, n_point or 1]
         self.brain_features, self.brain_labels = self._cal_brain_feat()
@@ -340,6 +353,16 @@ class unrelatedHCP_PatchData(data.Dataset):
         
         return fiber_feat, fiber_label, local_feat, global_feat, new_subidx
     
+    def _compute_samples_per_class(self):
+        """Compute the number of samples per class."""
+        unique_labels, counts = np.unique(self.labels, return_counts=True)
+        samples_per_class = dict(zip(unique_labels, counts))
+        self.logger.info(f'Samples per class: {samples_per_class}')
+        return samples_per_class
+    def _compute_samples_per_class(self):
+        # Count occurrences of each class in the labels
+        samples_per_class = torch.bincount(torch.tensor(self.labels), minlength=self.num_classes)
+        return samples_per_class
 
 
 def cal_local_feat(cur_feat, k_ds_rate, k, use_endpoints_dist, cal_equiv_dist):

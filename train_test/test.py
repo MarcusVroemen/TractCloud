@@ -89,8 +89,8 @@ if __name__ == '__main__':
     print("Random Seed: ", args.manualSeed)
     fix_seed(args.manualSeed)
     #
-    print(args.input_path, args.connectome)
-    args.input_path="/media/volume/HCP_diffusion_MV/TrainData_MRtrix_100" #TODO why is this necessary
+    # args.input_path="/media/volume/HCP_diffusion_MV/TrainData_MRtrix_100_symmetric" #TODO why is this necessary
+    # print(args.input_path, args.connectome)
     # adaptively change the args
     args = adaptive_args(args)
     # paths

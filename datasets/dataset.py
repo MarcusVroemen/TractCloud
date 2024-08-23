@@ -106,20 +106,15 @@ class unrelatedHCP_PatchData(data.Dataset):
             # Load the data from the file
             data_dict = pickle.load(file)
         self.features = data_dict['feat']
-        if encoding=='default':
-            self.labels = data_dict['label']
-            self.label_names = data_dict['label_name']
-        else: # to accommodate for other encodings such as symmetric
-            self.labels = data_dict[f'label_{encoding}']
-            self.label_names = data_dict[f'label_name_{encoding}']
+        self.labels = data_dict['label']
+        self.label_names = data_dict['label_name']
+
         self.subject_ids = data_dict['subject_id']
         self.logger.info('Load {} data'.format(self.split))
 
         # Compute the number of samples per class
         self.num_classes = len(np.unique(self.label_names))
         self.samples_per_class = self._compute_samples_per_class()
-        # import pdb
-        # pdb.set_trace()
         
         if self.samples_per_class.sum().item() != len(self.features):
             raise ValueError(f"Sum of samples_per_class ({samples_per_class.sum().item()}) does not match the number of features ({len(self.features)}).")

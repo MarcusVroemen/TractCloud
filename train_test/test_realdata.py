@@ -15,6 +15,8 @@ from utils.cli import load_args_in_testing_only
 from train import load_model, train_val_test_forward
 from datasets.dataset import RealData_PatchData, center_tractography
 import utils.tract_feat as tract_feat
+from tractography.label_encoder import generate_label_dict 
+from utils.metrics_connectome import *
 
 
 def test_realdata_DL_net(net):
@@ -61,6 +63,11 @@ parser.add_argument('--num_classes', type=int, default=1600, help='number of cla
 parser.add_argument('--cal_equiv_dist', default=False, action='store_true', help='Calculate equivalent distance for pairwise distance matrix for finding neighbors')
 parser.add_argument('--k_ds_rate', type=float, default=0.1, help='downsample the tractography when calculating pairwise distance matrix')
 
+parser.add_argument('--connectome', default=False, action='store_true', help='Testing on data returns connectomes and metrics')
+parser.add_argument('--atlas', type=str, default='org (800clusters+800outliers)', help='Atlas used')
+parser.add_argument('--class_weighting', type=float, default=0, help='Class weights, 0 is no weights, scales quadratically')
+parser.add_argument('--encoding', type=str, default='default', help='Method of encoding 2D connectome labels')
+    
 
 args = parser.parse_args()
 # input from test_realdata.py keyboard
@@ -68,7 +75,11 @@ args_path = args.weight_path_base + '/cli_args.txt'
 # input from train.py keyboard, in cli.txt
 args = load_args_in_testing_only(args_path, args)
 # paths
-args.weight_path = os.path.join(args.weight_path_base, 'best_tract_f1_model.pth')
+if not args.connectome:
+    args.weight_path = os.path.join(args.weight_path_base, 'best_tract_f1_model.pth')
+else:
+    args.weight_path = os.path.join(args.weight_path_base, 'best_org_f1_model.pth')
+    
 makepath(args.out_path)
 # create logger
 log_path = os.path.join(args.out_path, 'log')
@@ -77,23 +88,34 @@ logger = create_logger(log_path)
 logger.info('=' * 55)
 logger.info(args)
 logger.info('=' * 55)
+
 # label names
-ordered_tract_cluster_mapping_dict = obtain_TractClusterMapping()
-tract_label_names_str = list(ordered_tract_cluster_mapping_dict.keys())
+if not args.connectome:
+    ordered_tract_cluster_mapping_dict = obtain_TractClusterMapping()
+    tract_label_names_str = list(ordered_tract_cluster_mapping_dict.keys())
+else:
+    label_names_tuple = list(generate_label_dict(85, 'symmetric'))
+    label_names_str=[]
+    for label in label_names_tuple:
+        label_names_str.append(str(label[0]) + '_' + str(label[1]))
+
 # read tractography into feature
 pd_tractography = wma.io.read_polydata(args.tractography_path)
 logger.info('Finish reading tractography from: {}'.format(args.tractography_path))
 tractography_file_n = os.path.basename(os.path.normpath(args.tractography_path))
+
 # load non-registered feature 
 logger.info('Extracting feature from unregistered tractography'.format(args.tractography_path))
 feat_RAS, _ = tract_feat.feat_RAS(pd_tractography, number_of_points=args.num_points)
 logger.info('The number of fibers in test tractography is {}'.format(feat_RAS.shape[0]))
 logger.info('Extracting RAS features is done')
+
 # re-center tractography
 save_recentered_data = False
-centered_feat_RAS = center_tractography(args.input_path,feat_RAS,args.out_path, 
+centered_feat_RAS = center_tractography(args.input_path,feat_RAS,args.out_path, #!!!!!!!!!
                                         logger,tractography_file_n,save_recentered_data)
 logger.info('re-centering tractography is done.')
+    
 # Real data processing
 test_realdata = RealData_PatchData(centered_feat_RAS, k=args.k, k_global=args.k_global, cal_equiv_dist=args.cal_equiv_dist, 
                                     use_endpoints_dist=False, rough_num_fiber_each_iter=args.num_fiber_per_brain, k_ds_rate=args.k_ds_rate) 
@@ -101,14 +123,30 @@ test_loader = torch.utils.data.DataLoader(test_realdata, batch_size=args.test_re
 test_realdata_global_feat = test_realdata.global_feat
 test_realdata_size = len(test_realdata)
 logger.info('calculating knn+random features is done')
+
 # test network
 DL_model = load_model(args, num_classes=args.num_classes, device=device, test=True)  
 _, predicted_lst = test_realdata_DL_net(DL_model)
 
-tract_predicted_lst = cluster2tract_label(predicted_lst, ordered_tract_cluster_mapping_dict)
-logger.info('Deep learning prediction is done.')
-# save parcellated vtp results
-tractography_parcellation(args, pd_tractography, tract_predicted_lst, tract_label_names_str)  # pd tractography here is in the subject space.
+if not args.connectome:
+    tract_predicted_lst = cluster2tract_label(predicted_lst, ordered_tract_cluster_mapping_dict)
+    logger.info('Deep learning prediction is done.')
+    # save parcellated vtp results
+    tractography_parcellation(args, pd_tractography, tract_predicted_lst, tract_label_names_str)  # pd tractography here is in the subject space.
+else:
+    tractography_parcellation(args, pd_tractography, predicted_lst, label_names_str)  # pd tractography here is in the subject space.
+    # Save predictions
+    connectome_path = os.path.join(args.out_path, 'connectome')
+    makepath(connectome_path)
+    with open(os.path.join(connectome_path, f'predictions_encoded_{args.encoding}.txt'), 'w') as file:
+        for prediction in predicted_lst:
+            file.write(f'{iten}\n')
+        
+    predicted_lst_decoded = convert_labels_list(predicted_lst, encoding_type=args.encoding, 
+                                                mode='decode', num_labels=85)
+    predicted_connectome = create_connectome(labels=predicted_lst_decoded, num_labels=85)
+    save_connectome(predicted_connectome, connectome_path, title='pred')
+
 # time
 end_time = time.time()
 tot_time = round(end_time - start_time, 3)

@@ -21,7 +21,7 @@ from utils.logger import create_logger
 from utils.metrics_plots import classify_report, process_curves, calculate_acc_prec_recall_f1, best_swap, save_best_weights
 from utils.funcs import round_decimal, unify_path, makepath, fix_seed, obtain_TractClusterMapping, cluster2tract_label, save_info_feat, str2num
 from utils.cli import create_parser, save_args, adaptive_args
-from utils.metrics_connectome import ConnectomeMetrics
+from utils.metrics_connectome import *
 
 def load_datasets(eval_split, args, test=False, logger=None):
     """load train and validation data"""
@@ -422,8 +422,8 @@ def results_logging(args, logger, eval_state, label_names, org_labels_lst, org_p
             org_label_best_acc,org_label_best_prec,org_label_best_recall,org_label_best_mac_f1 = calculate_acc_prec_recall_f1(org_labels_lst, org_predicted_lst)
             classify_report(org_labels_lst, org_predicted_lst, label_names_str, logger, args.out_log_path, args.best_metric,eval_state, h5_name, obtain_conf_mat=False, connectome=True)
             
-            CM = ConnectomeMetrics(org_labels_lst, org_predicted_lst, encoding_type='default', num_labels=85, out_path=args.out_log_path)
-            print(CM.results)
+            CM = ConnectomeMetrics(org_labels_lst, org_predicted_lst, encoding=args.encoding, num_labels=85, out_path=args.out_log_path)
+            # print(CM.results)
             # plot_connectomes(org_labels_lst, org_predicted_lst, encoding_type='default', num_labels=85, out_path=args.out_log_path)
             #plot_connectomes(org_labels_lst, org_predicted_lst, encoding_type='default', num_labels=85, out_path=args.out_log_path, num_f_brain=args.num_fiber_per_brain)
 

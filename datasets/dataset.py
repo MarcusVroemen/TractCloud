@@ -103,14 +103,15 @@ class unrelatedHCP_PatchData(data.Dataset):
                 
         # load data
         with open(os.path.join(root, '{}.pickle'.format(split)), 'rb') as file:
-            # Load the data from the file
             data_dict = pickle.load(file)
         self.features = data_dict['feat']
         self.labels = data_dict['label']
         self.label_names = data_dict['label_name']
-
         self.subject_ids = data_dict['subject_id']
         self.logger.info('Load {} data'.format(self.split))
+
+        # Select relevant data and remove unused data
+        self._select_relevant_data()
 
         # Compute the number of samples per class
         self.num_classes = len(np.unique(self.label_names))
@@ -126,6 +127,30 @@ class unrelatedHCP_PatchData(data.Dataset):
         # [n_subject*n_fiber, n_point, n_feat], [n_subject*n_fiber, n_point or 1], [n_subject*n_fiber, n_point, n_feat, k], [n_subject, n_point, n_feat, k_global], [n_subject*n_fiber, 1]
         self.org_feat, self.org_label, self.local_feat, self.global_feat, self.new_subidx = self._cal_info_feat()
         
+    def _select_relevant_data(self):
+        """Select the relevant features and labels for each subject, then delete unused data."""
+        unique_subject_ids = np.unique(self.subject_ids)
+        selected_features = []
+        selected_labels = []
+        selected_subject_ids = []
+
+        for unique_id in unique_subject_ids:
+            cur_idxs = np.where(self.subject_ids == unique_id)[0]
+            np.random.shuffle(cur_idxs)
+            cur_select_idxs = cur_idxs[:self.num_fiber]
+            
+            # Select the relevant features and labels
+            selected_features.append(self.features[cur_select_idxs, :, :])
+            selected_labels.append(self.labels[cur_select_idxs])
+            selected_subject_ids.append(np.full(len(cur_select_idxs), unique_id))
+        
+        # Combine selected features and labels
+        self.features = np.concatenate(selected_features, axis=0)
+        self.labels = np.concatenate(selected_labels, axis=0)
+        self.subject_ids = np.concatenate(selected_subject_ids, axis=0)
+        
+        # Delete unused data to free up memory
+        del selected_features, selected_labels, selected_subject_ids
 
     def __getitem__(self, index):
         point_set = self.org_feat[index]

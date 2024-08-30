@@ -9,11 +9,12 @@ import matplotlib.ticker as mtick
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import classification_report, accuracy_score, precision_recall_fscore_support, confusion_matrix 
+from utils.funcs import round_decimal
 
-def calculate_acc_prec_recall_f1(labels_lst, predicted_lst):
+def calculate_acc_prec_recall_f1(labels_lst, predicted_lst, average='macro'):
     acc = accuracy_score(y_true=labels_lst, y_pred=predicted_lst)
     # Beta: The strength of recall versus precision in the F-score. beta == 1.0 means recall and precision are equally important, that is F1-score
-    mac_precision, mac_recall, mac_f1, _ = precision_recall_fscore_support(y_true=labels_lst, y_pred=predicted_lst, beta=1.0, average='macro', zero_division=np.nan) # ignore empty labels
+    mac_precision, mac_recall, mac_f1, _ = precision_recall_fscore_support(y_true=labels_lst, y_pred=predicted_lst, beta=1.0, average=average, zero_division=np.nan) # ignore empty labels
     return acc, mac_precision, mac_recall, mac_f1
 
 def classify_report(labels_lst, predicted_lst, label_names, logger, out_path, metric_name, state, h5_name, obtain_conf_mat, save_h5=True, connectome=False):
@@ -48,6 +49,18 @@ def classify_report(labels_lst, predicted_lst, label_names, logger, out_path, me
             eval_res['classification_report'] = cls_report
         except:
             pass
+        
+    if connectome:
+        acc = accuracy_score(y_true=labels_lst, y_pred=predicted_lst)
+        mac_precision, mac_recall, mac_f1, _ = precision_recall_fscore_support(y_true=labels_lst, y_pred=predicted_lst, beta=1.0, average='macro', zero_division=np.nan)
+        weighted_precision, weighted_recall, weighted_f1, _ = precision_recall_fscore_support(y_true=labels_lst, y_pred=predicted_lst, beta=1.0, average='weighted', zero_division=np.nan) # ignore empty labels
+        
+        logger.info("="*55)
+        logger.info("Results for model best f1 weights")
+        logger.info("Accuracy:           {}".format(round_decimal(acc,5)))
+        logger.info("Macro scores    F1: {} Precision: {} Recall: {}".format(round_decimal(mac_f1,5), round_decimal(mac_precision,5), round_decimal(mac_recall,5)))
+        logger.info("Weighted scores F1: {} Precision: {} Recall: {}".format(round_decimal(weighted_f1,5), round_decimal(weighted_precision,5), round_decimal(weighted_recall,5)))
+        logger.info("="*55)
 
 def process_curves(epoch, train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst,
                     train_precision_lst, val_precision_lst, train_recall_lst, val_recall_lst,
@@ -56,8 +69,8 @@ def process_curves(epoch, train_loss_lst, val_loss_lst, train_acc_lst, val_acc_l
     epoch_lst = range(1, epoch + 1)
     fig, axes = plt.subplots(2, 3, figsize=(30, 20))
     # loss
-    axes[0, 0].plot(epoch_lst, train_loss_lst, '-', color='r', label='train loss')
-    axes[0, 0].plot(epoch_lst, val_loss_lst, '-', color='b', label='val loss')
+    axes[0, 0].plot(epoch_lst, train_loss_lst, '-', color='tab:red', label='train loss')
+    axes[0, 0].plot(epoch_lst, val_loss_lst, '-', color='tab:blue', label='val loss')
     axes[0, 0].set_title('Loss Curve', fontsize=15)
     axes[0, 0].set_xlabel('epochs', fontsize=12)
     axes[0, 0].set_ylabel('loss', fontsize=12)
@@ -66,51 +79,86 @@ def process_curves(epoch, train_loss_lst, val_loss_lst, train_acc_lst, val_acc_l
     axes[0, 0].set_xticks(np.arange(1, len(epoch_lst) + 1, 5.0))
 
     # accuracy
-    axes[0, 1].plot(epoch_lst, train_acc_lst, '-', color='r', label='train accuracy')
-    axes[0, 1].plot(epoch_lst, val_acc_lst, '-', color='b', label='val accuracy')
+    axes[0, 1].plot(epoch_lst, train_acc_lst, '-', color='tab:red', label='train accuracy')
+    axes[0, 1].plot(epoch_lst, val_acc_lst, '-', color='tab:blue', label='val accuracy')
     axes[0, 1].set_title('Accuracy Curve', fontsize=15)
     axes[0, 1].set_xlabel('epochs', fontsize=12)
     axes[0, 1].set_ylabel('accuracy', fontsize=12)
     axes[0, 1].grid()
     axes[0, 1].legend()
     axes[0, 1].set_xticks(np.arange(1, len(epoch_lst) + 1, 5.0))
-
-    # macro precision
-    axes[0, 2].plot(epoch_lst, train_precision_lst, '-', color='r', label='train precision')
-    axes[0, 2].plot(epoch_lst, val_precision_lst, '-', color='b', label='val precision')
-    axes[0, 2].set_title('Precision (marco) Curve', fontsize=15)
+    
+    # f1
+    if isinstance(train_f1_lst[0], list):
+        train_f1_macro, train_f1_weighted = zip(*train_f1_lst)
+        val_f1_macro, val_f1_weighted = zip(*val_f1_lst)
+        axes[0, 2].plot(epoch_lst, train_f1_macro, '-', color='tab:red', label='train f1 macro')
+        axes[0, 2].plot(epoch_lst, val_f1_macro, '-', color='tab:blue', label='val f1 macro')
+        axes[0, 2].plot(epoch_lst, train_f1_weighted, '-', color='tab:orange', label='train f1 weighted')
+        axes[0, 2].plot(epoch_lst, val_f1_weighted, '-', color='tab:green', label='val f1 weighted')
+        axes[0, 2].set_title('f1 Curve', fontsize=15)
+    else:
+        axes[0, 2].plot(epoch_lst, train_f1_lst, '-', color='tab:red', label='train f1')
+        axes[0, 2].plot(epoch_lst, val_f1_lst, '-', color='tab:blue', label='val f1')
+        axes[0, 2].set_title('f1 (marco) Curve', fontsize=15)
     axes[0, 2].set_xlabel('epochs', fontsize=12)
-    axes[0, 2].set_ylabel('precision', fontsize=12)
+    axes[0, 2].set_ylabel('f1', fontsize=12)
     axes[0, 2].grid()
     axes[0, 2].legend()
     axes[0, 2].set_xticks(np.arange(1, len(epoch_lst) + 1, 5.0))
 
-    # macro recall
-    axes[1, 0].plot(epoch_lst, train_recall_lst, '-', color='r', label='train recall')
-    axes[1, 0].plot(epoch_lst, val_recall_lst, '-', color='b', label='val recall')
-    axes[1, 0].set_title('Recall (marco) Curve', fontsize=15)
+    # precision
+    if isinstance(train_precision_lst[0], list):
+        train_precision_macro, train_precision_weighted = zip(*train_precision_lst)
+        val_precision_macro, val_precision_weighted = zip(*val_precision_lst)
+        axes[1, 0].plot(epoch_lst, train_precision_macro, '-', color='tab:red', label='train precision macro')
+        axes[1, 0].plot(epoch_lst, val_precision_macro, '-', color='tab:blue', label='val precision macro')
+        axes[1, 0].plot(epoch_lst, train_precision_weighted, '-', color='tab:orange', label='train precision weighted')
+        axes[1, 0].plot(epoch_lst, val_precision_weighted, '-', color='tab:green', label='val precision weighted')
+        axes[1, 0].set_title('Precision Curve', fontsize=15)
+    else:
+        axes[1, 0].plot(epoch_lst, train_precision_lst, '-', color='tab:red', label='train precision')
+        axes[1, 0].plot(epoch_lst, val_precision_lst, '-', color='tab:blue', label='val precision')
+        axes[1, 0].set_title('Precision (marco) Curve', fontsize=15)
     axes[1, 0].set_xlabel('epochs', fontsize=12)
-    axes[1, 0].set_ylabel('recall', fontsize=12)
+    axes[1, 0].set_ylabel('precision', fontsize=12)
     axes[1, 0].grid()
     axes[1, 0].legend()
     axes[1, 0].set_xticks(np.arange(1, len(epoch_lst) + 1, 5.0))
 
-    # macro f1
-    axes[1, 1].plot(epoch_lst, train_f1_lst, '-', color='r', label='train f1')
-    axes[1, 1].plot(epoch_lst, val_f1_lst, '-', color='b', label='val f1')
-    axes[1, 1].set_title('F1-score (marco) Curve', fontsize=15)
+    # recall
+    if isinstance(train_recall_lst[0], list):
+        train_recall_macro, train_recall_weighted = zip(*train_recall_lst)
+        val_recall_macro, val_recall_weighted = zip(*val_recall_lst)
+        axes[1, 1].plot(epoch_lst, train_recall_macro, '-', color='tab:red', label='train recall macro')
+        axes[1, 1].plot(epoch_lst, val_recall_macro, '-', color='tab:blue', label='val recall macro')
+        axes[1, 1].plot(epoch_lst, train_recall_weighted, '-', color='tab:orange', label='train recall weighted')
+        axes[1, 1].plot(epoch_lst, val_recall_weighted, '-', color='tab:green', label='val recall weighted')
+        axes[1, 1].set_title('Recall Curve', fontsize=15)
+    else:
+        axes[1, 1].plot(epoch_lst, train_recall_lst, '-', color='tab:red', label='train recall')
+        axes[1, 1].plot(epoch_lst, val_recall_lst, '-', color='tab:blue', label='val recall')
+        axes[1, 1].set_title('Recall (marco) Curve', fontsize=15)
     axes[1, 1].set_xlabel('epochs', fontsize=12)
-    axes[1, 1].set_ylabel('f1-score', fontsize=12)
+    axes[1, 1].set_ylabel('Recall', fontsize=12)
     axes[1, 1].grid()
     axes[1, 1].legend()
     axes[1, 1].set_xticks(np.arange(1, len(epoch_lst) + 1, 5.0))
 
     # accuracy,  macro precision, macro recall, macro f1
-    axes[1, 2].plot(epoch_lst, val_acc_lst, '-', color='r', label='accuracy')
-    axes[1, 2].plot(epoch_lst, val_precision_lst, '-', color='g', label='precision (macro)')
-    axes[1, 2].plot(epoch_lst, val_recall_lst, '-', color='b', label='recall (macro)')
-    axes[1, 2].plot(epoch_lst, val_f1_lst, '-', color='y', label='f1 (macro)')
-    axes[1, 2].scatter(best_f1_epoch, best_f1_mac, c='y', marker='P', label='best f1 (macro)')
+    if isinstance(train_f1_lst[0], list):
+        axes[1, 2].plot(epoch_lst, val_precision_macro, '-', color='tab:green', label='precision (macro)')
+        axes[1, 2].plot(epoch_lst, val_recall_macro, '-', color='tab:blue', label='recall (macro)')
+        axes[1, 2].plot(epoch_lst, val_f1_macro, '-', color='tab:olive', label='f1 (macro)')
+        axes[1, 2].plot(epoch_lst, val_precision_weighted, '-', color='tab:purple', label='precision (weighted)')
+        axes[1, 2].plot(epoch_lst, val_recall_weighted, '-', color='tab:cyan', label='recall (weighted)')
+        axes[1, 2].plot(epoch_lst, val_f1_weighted, '-', color='tab:orange', label='f1 (weighted)')
+    else:
+        axes[1, 2].plot(epoch_lst, val_precision_lst, '-', color='tab:green', label='precision (macro)')
+        axes[1, 2].plot(epoch_lst, val_recall_lst, '-', color='tab:blue', label='recall (macro)')
+        axes[1, 2].plot(epoch_lst, val_f1_lst, '-', color='tab:olive', label='f1 (macro)')
+    axes[1, 2].plot(epoch_lst, val_acc_lst, '-', color='tab:red', label='accuracy')
+    axes[1, 2].scatter(best_f1_epoch, best_f1_mac, c='tab:olive', marker='P', label='best f1 (macro)')
     axes[1, 2].set_title('Metric Comparison Curve', fontsize=15)
     axes[1, 2].set_xlabel('epochs', fontsize=12)
     axes[1, 2].set_ylabel('metrics', fontsize=12)

@@ -126,26 +126,35 @@ logger.info('calculating knn+random features is done')
 
 # test network
 DL_model = load_model(args, num_classes=args.num_classes, device=device, test=True)  
-_, predicted_lst = test_realdata_DL_net(DL_model)
+_, pred_labels = test_realdata_DL_net(DL_model)
 
 if not args.connectome:
-    tract_predicted_lst = cluster2tract_label(predicted_lst, ordered_tract_cluster_mapping_dict)
+    tract_pred_labels = cluster2tract_label(pred_labels, ordered_tract_cluster_mapping_dict)
     logger.info('Deep learning prediction is done.')
     # save parcellated vtp results
-    tractography_parcellation(args, pd_tractography, tract_predicted_lst, tract_label_names_str)  # pd tractography here is in the subject space.
+    tractography_parcellation(args, pd_tractography, tract_pred_labels, tract_label_names_str)  # pd tractography here is in the subject space.
 else:
-    tractography_parcellation(args, pd_tractography, predicted_lst, label_names_str)  # pd tractography here is in the subject space.
+    # tractography_parcellation(args, pd_tractography, pred_labels, label_names_str)  # pd tractography here is in the subject space.
     # Save predictions
     connectome_path = os.path.join(args.out_path, 'connectome')
     makepath(connectome_path)
-    with open(os.path.join(connectome_path, f'predictions_encoded_{args.encoding}.txt'), 'w') as file:
-        for prediction in predicted_lst:
-            file.write(f'{iten}\n')
-        
-    predicted_lst_decoded = convert_labels_list(predicted_lst, encoding_type=args.encoding, 
+    pred_labels_decoded = convert_labels_list(pred_labels, encoding_type=args.encoding, 
                                                 mode='decode', num_labels=85)
-    predicted_connectome = create_connectome(labels=predicted_lst_decoded, num_labels=85)
-    save_connectome(predicted_connectome, connectome_path, title='pred')
+    # Write prediction files
+    with open(os.path.join(connectome_path, f'predictions.txt'), 'w') as file:
+        for prediction in pred_labels_decoded:
+            file.write(f'{prediction}\n')
+    with open(os.path.join(connectome_path, f'predictions_encoded_{args.encoding}.txt'), 'w') as file:
+        for prediction in pred_labels:
+            file.write(f'{prediction}\n')
+    
+    # Read true files
+    with open(os.path.join(os.path.dirname(args.tractography_path), f'labels_encoded_{args.encoding}.txt'), 'r') as file:
+        true_labels = [int(line) for line in file]
+    
+    # Plot connectomes, and compute metrics
+    CM = ConnectomeMetrics(true_labels=true_labels, pred_labels=pred_labels, encoding='symmetric', out_path=connectome_path)
+    logger.info(CM.format_metrics())
 
 # time
 end_time = time.time()

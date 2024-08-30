@@ -32,7 +32,7 @@ def create_parser():
     parser.add_argument('--momentum', type=float, default=0, help='momentum for SGD')
     parser.add_argument('--scheduler', type=str, default='step', help='type of learning rate scheduler')
     parser.add_argument('--step_size', type=int, default=10, help='Period of learning rate decay')
-    parser.add_argument('--decay_factor', type=float, default=0, help='Multiplicative factor of learning rate decay')
+    parser.add_argument('--decay_factor', type=float, default=1, help='Multiplicative factor of learning rate decay')
     parser.add_argument('--T_0', type=int, default=10, help='Number of iterations for the first restart (for wucd)')
     parser.add_argument('--T_mult', type=int, default=2, help='A factor increases Ti after a restart (for wucd)')
     parser.add_argument('--dropout', type=float, default=0.5, help='initial dropout rate')

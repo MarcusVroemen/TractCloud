@@ -6,6 +6,7 @@ import numpy as np
 import pickle
 import sys
 import os
+import gc
 import whitematteranalysis as wma
 from pytorch3d.transforms import RotateAxisAngle, Scale, Translate
 
@@ -179,7 +180,6 @@ class unrelatedHCP_PatchData(data.Dataset):
     def __len__(self):
         return self.org_feat.shape[0]
 
-
     def _cal_brain_feat(self):
         """Process data for classification and segmentation. Get data in both brain and streamline level.
            Brain features are used for calculating the local-global representation.
@@ -322,17 +322,43 @@ class unrelatedHCP_PatchData(data.Dataset):
         
         num_subjects = self.brain_features.shape[0]
         num_feat_per_point = self.brain_features.shape[-1]
-        if self.k>0:
-            local_feat = np.zeros((*self.brain_features.shape, self.k), dtype=np.float32) # [n_subject, n_fiber, n_point, n_feat, k]
-        else: # will be discarded later in the training
-            local_feat = np.zeros((*self.brain_features.shape, 1), dtype=np.float32) # [n_subject, n_fiber, n_point, n_feat, 1]
-            local_feat = local_feat.reshape(-1, self.num_point, num_feat_per_point, 1)  # [n_subject*n_fiber, n_point, n_feat, 1]
-        if self.k_global>0:
-            global_feat = np.zeros((num_subjects, self.num_point, num_feat_per_point, self.k_global), dtype=np.float32) # [n_subject, n_point, n_feat, k_global]
+        
+        # Decide whether to use memory-mapped arrays to avoid using too much memory
+        use_memap=True
+        if use_memap:
+            mem_path = os.path.join(self.out_path,'TempMemory',self.split)
+            makepath(mem_path)
+            local_feat_path = os.path.join(mem_path, 'local_feat.dat')
+            global_feat_path = os.path.join(mem_path, 'global_feat.dat')
+            new_subidx_path = os.path.join(mem_path, 'new_subidx.dat')
+            if self.k > 0:
+                local_feat = np.memmap(local_feat_path, dtype=np.float32, mode='w+', 
+                                    shape=(*self.brain_features.shape, self.k))  # [n_subject, n_fiber, n_point, n_feat, k]
+            else:
+                local_feat = np.memmap(local_feat_path, dtype=np.float32, mode='w+', 
+                                    shape=(*self.brain_features.shape, 1))  # [n_subject, n_fiber, n_point, n_feat, 1]
+                local_feat = local_feat.reshape(-1, self.num_point, num_feat_per_point, 1)  # [n_subject*n_fiber, n_point, n_feat, 1]
+            if self.k_global > 0:
+                global_feat = np.memmap(global_feat_path, dtype=np.float32, mode='w+', 
+                                        shape=(num_subjects, self.num_point, num_feat_per_point, self.k_global))  # [n_subject, n_point, n_feat, k_global]
+            else:
+                global_feat = np.memmap(global_feat_path, dtype=np.float32, mode='w+', 
+                                        shape=(num_subjects, self.num_point, num_feat_per_point, 1))  # [n_subject, n_point, n_feat, 1]
+            new_subidx = np.memmap(new_subidx_path, dtype=np.int64, mode='w+', 
+                                shape=(num_subjects, self.num_fiber))  # [n_subject, n_fiber]
         else:
-            global_feat = np.zeros((num_subjects, self.num_point, num_feat_per_point, 1), dtype=np.float32) # [n_subject, n_point, n_feat, 1]
-        # calculate new sub idx no where what the value of k and k_global are.
-        new_subidx = np.zeros((num_subjects, self.num_fiber), dtype=np.int64)  # [n_subject, n_fiber]
+            if self.k>0:
+                local_feat = np.zeros((*self.brain_features.shape, self.k), dtype=np.float32) # [n_subject, n_fiber, n_point, n_feat, k]
+            else: # will be discarded later in the training
+                local_feat = np.zeros((*self.brain_features.shape, 1), dtype=np.float32) # [n_subject, n_fiber, n_point, n_feat, 1]
+                local_feat = local_feat.reshape(-1, self.num_point, num_feat_per_point, 1)  # [n_subject*n_fiber, n_point, n_feat, 1]
+            if self.k_global>0:
+                global_feat = np.zeros((num_subjects, self.num_point, num_feat_per_point, self.k_global), dtype=np.float32) # [n_subject, n_point, n_feat, k_global]
+            else:
+                global_feat = np.zeros((num_subjects, self.num_point, num_feat_per_point, 1), dtype=np.float32) # [n_subject, n_point, n_feat, 1]
+            # calculate new sub idx no where what the value of k and k_global are.
+            new_subidx = np.zeros((num_subjects, self.num_fiber), dtype=np.int64)  # [n_subject, n_fiber]
+        
         # iterate over augmented subjects
         for cur_idx in range(num_subjects):
             time_start = time.time()
@@ -343,25 +369,31 @@ class unrelatedHCP_PatchData(data.Dataset):
                 cur_local_feat = cal_local_feat(cur_feat, self.k_ds_rate, self.k, self.use_endpoints_dist, self.cal_equiv_dist)      # [n_fiber*k, n_feat, n_point]
                 cur_local_feat = cur_local_feat.reshape(self.num_fiber, self.k, num_feat_per_point, self.num_point)  # [n_fiber, k, n_feat, n_point]
                 cur_local_feat = np.transpose(cur_local_feat,(0,3,2,1))  # [n_fiber, k, n_feat, n_point]->[n_fiber, n_point, n_feat, k]
+                local_feat[cur_idx,...] = cur_local_feat
+                del cur_local_feat
             if self.k_global>0:
                 # global feat
                 random_idx = np.random.randint(0, cur_feat.shape[0], self.k_global)
                 cur_global_feat = cur_feat[random_idx,...]  # [k_global, n_feat, n_point]. This is the random feature for all fibers in a test subject
                 cur_global_feat = cur_global_feat.transpose(2,1,0)  # [n_point, n_feat, k_global]
+                global_feat[cur_idx,...] = cur_global_feat
+                del cur_global_feat
             # new sub idx
             cur_subidx = np.ones((cur_feat.shape[0]), dtype=np.int64)*cur_idx   # [n_fiber,]
+            new_subidx[cur_idx,...] = cur_subidx
             time_end = time.time()
+            
             if self.aug_times >0:
                 self.logger.info('Subject {} Aug {} with {} fibers feature calculation time: {:.2f} s'
                                 .format(cur_idx//self.aug_times, cur_idx%self.aug_times, self.num_fiber, time_end-time_start))
             else:
                 self.logger.info('Subject {} (No Aug) with {} fibers feature calculation time: {:.2f} s'
                                 .format(cur_idx, self.num_fiber, time_end-time_start))
-            if self.k>0:
-                local_feat[cur_idx,...] = cur_local_feat
-            if self.k_global>0:
-                global_feat[cur_idx,...] = cur_global_feat
-            new_subidx[cur_idx,...] = cur_subidx  
+            
+            # Cleanup memory
+            del cur_feat, cur_subidx
+            gc.collect()
+  
                 
         if self.k>0:
             local_feat = local_feat.reshape(-1, self.num_point, num_feat_per_point, self.k)  # [n_subject*n_fiber, n_point, n_feat, k]
@@ -375,12 +407,6 @@ class unrelatedHCP_PatchData(data.Dataset):
     
     def _compute_samples_per_class(self):
         """Compute the number of samples per class."""
-        unique_labels, counts = np.unique(self.labels, return_counts=True)
-        samples_per_class = dict(zip(unique_labels, counts))
-        self.logger.info(f'Samples per class: {samples_per_class}')
-        return samples_per_class
-    def _compute_samples_per_class(self):
-        # Count occurrences of each class in the labels
         samples_per_class = torch.bincount(torch.tensor(self.labels), minlength=self.num_classes)
         return samples_per_class
 

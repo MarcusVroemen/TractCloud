@@ -225,10 +225,6 @@ def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst, p
         label = label.view(-1,1)[:,0] 
             
         if args.class_weighting and state=='train':  # If class_weighting is provided and not None or 0
-            
-            # Compute weights based on samples per class, and a weighting factor
-            # 0 sets all weights to 1 (equal), 1 is proportional to class inbalance, higher more important
-
             min_samples = int(np.quantile(np.asarray(samples_per_class), 0.25))  # Example threshold for minimum samples per class
             max_samples = int(np.quantile(np.asarray(samples_per_class), 0.75))  # Example threshold for maximum samples per class
             max_samples = 10000  # Example threshold for maximum samples per class
@@ -242,12 +238,10 @@ def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst, p
             class_weights = class_weights.to(device)
             nll_loss_fn = torch.nn.NLLLoss(weight=class_weights)
             
-            # import pdb
-            # pdb.set_trace()
         else:
             # Define the loss function without weights
-            nll_loss_fn = torch.nn.NLLLoss()
-
+            nll_loss_fn = torch.nn.NLLLoss()        
+        
         loss = nll_loss_fn(pred, label)
             
     if state == 'train':
@@ -372,28 +366,37 @@ def meters(epoch, num_batch, total_loss, labels_lst, predicted_lst,
     org_loss_lst.append(avg_loss)
     # train macro p, r, f1
     # original labels 
-    org_acc, org_mac_precision, org_mac_recall, org_mac_f1 = \
-        calculate_acc_prec_recall_f1(labels_lst, predicted_lst)
-    org_acc_lst.append(org_acc)
-    org_precision_lst.append(org_mac_precision)
-    org_recall_lst.append(org_mac_recall)
-    org_f1_lst.append(org_mac_f1)
-    
+    if args.connectome: # Use weighted metrics when predicting conenctomes because of the large class inbalance
+        # average='weighted'
+        org_acc, mac_org_precision, mac_org_recall, mac_org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'macro')
+        org_acc, org_precision, org_recall, org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'weighted')
+        org_acc_lst.append(org_acc)
+        org_precision_lst.append([mac_org_precision, org_precision])
+        org_recall_lst.append([mac_org_recall, org_recall])
+        org_f1_lst.append([mac_org_f1, org_f1])
+    else:
+        org_acc, org_precision, org_recall, org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'macro')
+        org_acc_lst.append(org_acc)
+        org_precision_lst.append(org_precision)
+        org_recall_lst.append(org_recall)
+        org_f1_lst.append(org_f1)        
+
     if not args.connectome:
         # Tract labels
         tract_labels_lst = cluster2tract_label(labels_lst, ordered_tract_cluster_mapping_dict)
         tract_pred_lst = cluster2tract_label(predicted_lst, ordered_tract_cluster_mapping_dict)
-        tract_acc, _, _, tract_mac_f1 = calculate_acc_prec_recall_f1(tract_labels_lst, tract_pred_lst)   
-        logger.info('epoch [{}/{}] time: {}s {} loss: {} {} acc: {},f1: {}; Tract acc: {},f1: {}'
-                    .format(epoch, args.epoch, run_time, state, round(avg_loss, 4), args.atlas, round(org_acc, 4), round(org_mac_f1, 4), round(tract_acc, 4), round(tract_mac_f1, 4)))
+        tract_acc, _, _, tract_f1 = calculate_acc_prec_recall_f1(tract_labels_lst, tract_pred_lst)   
+        logger.info('epoch [{}/{}] time: {}s \t{} loss: {} \tacc: {} f1: {}; \tTract acc: {}, f1: {}'
+                    .format(epoch, args.epoch, run_time, state, round(avg_loss, 4), round(org_acc, 4), round(org_f1, 4), round(tract_acc, 4), round(tract_f1, 4)))
     # connectome instead of tract parcellation
     else:
-        tract_labels_lst, tract_pred_lst, tract_acc, tract_mac_f1 = None, None, None, None
-        logger.info('epoch [{}/{}] time: {}s {} loss: {} {} acc: {},f1: {}, prec: {}, rec: {}'
-                    .format(epoch, args.epoch, run_time, state, round(avg_loss, 4), args.atlas, round(org_acc, 4), round(org_mac_f1, 4), round(org_mac_recall, 4), round(org_mac_f1, 4)))
+        tract_labels_lst, tract_pred_lst, tract_acc, tract_f1 = None, None, None, None
+        logger.info('epoch [{}/{}] time: {:>7}s \t{:>6} loss: {:>6.4f} \tacc: {:>6.4f}, \tmacro f1: {:>6.4f}, prec: {:>6.4f}, rec: {:>6.4f}, \tweighted f1: {:>6.4f}, prec: {:>6.4f}, rec: {:>6.4f}'
+                    .format(epoch, args.epoch, run_time, state, avg_loss, org_acc, mac_org_f1, mac_org_precision, 
+                    mac_org_recall, org_f1, org_precision, org_recall))
         
-    return org_loss_lst, org_acc_lst, org_precision_lst, org_recall_lst, org_f1_lst, org_acc, org_mac_f1, \
-           tract_acc, tract_mac_f1, tract_labels_lst, tract_pred_lst
+    return org_loss_lst, org_acc_lst, org_precision_lst, org_recall_lst, org_f1_lst, org_acc, org_f1, \
+           tract_acc, tract_f1, tract_labels_lst, tract_pred_lst
 
 
 def results_logging(args, logger, eval_state, label_names, org_labels_lst, org_predicted_lst,
@@ -416,16 +419,14 @@ def results_logging(args, logger, eval_state, label_names, org_labels_lst, org_p
             except:
                 logger.info('Warning!! Number of classes, {}, does not match size of target_names, {}. Try specifying the labels parameter'
                             .format(np.unique(np.array(org_predicted_lst)).shape[0], len(label_names_str)))
+            try:
+                logger.info("Results for {} original labels with best f1 weights: Acc {} macro F1 {}".format(len(label_names_str), round_decimal(org_label_best_acc,5),round_decimal(org_label_best_mac_f1,5)))
+            except:
+                pass
         else:
-            # import pdb
-            # pdb.set_trace()
-            org_label_best_acc,org_label_best_prec,org_label_best_recall,org_label_best_mac_f1 = calculate_acc_prec_recall_f1(org_labels_lst, org_predicted_lst)
             classify_report(org_labels_lst, org_predicted_lst, label_names_str, logger, args.out_log_path, args.best_metric,eval_state, h5_name, obtain_conf_mat=False, connectome=True)
-            
             CM = ConnectomeMetrics(org_labels_lst, org_predicted_lst, encoding=args.encoding, num_labels=85, out_path=args.out_log_path)
-            # print(CM.results)
-            # plot_connectomes(org_labels_lst, org_predicted_lst, encoding_type='default', num_labels=85, out_path=args.out_log_path)
-            #plot_connectomes(org_labels_lst, org_predicted_lst, encoding_type='default', num_labels=85, out_path=args.out_log_path, num_f_brain=args.num_fiber_per_brain)
+            logger.info(CM.format_metrics())
 
     if args.use_tracts_testing:
         tract_label_names_str = list(ordered_tract_cluster_mapping_dict.keys())
@@ -438,20 +439,11 @@ def results_logging(args, logger, eval_state, label_names, org_labels_lst, org_p
         except:
             logger.info('Warning!! Number of classes, {}, does not match size of target_names, {}. Try specifying the labels parameter'
                         .format(np.unique(np.array(tract_predicted_lst)).shape[0], len(tract_label_names_str)))
-    
-    # accuracy, f1    
-    try:
         try:
-            logger.info("Results for {} original labels with best f1 weights: Acc {} F1 {} Prec {} Recall {}".format(len(label_names_str), round_decimal(org_label_best_acc,5), round_decimal(org_label_best_mac_f1,5),
-                                                                                                                     round_decimal(org_label_best_prec,5), round_decimal(org_label_best_recall,5)))
+            logger.info("Results for {}+1 tract labels with best f1 weights: Acc {} F1 {}".format(len(tract_label_names_str)-1, round_decimal(tract_label_best_acc,5),round_decimal(tract_label_best_mac_f1,5)))        
         except:
-            logger.info("Results for {} original labels with best f1 weights: Acc {} F1 {}".format(len(label_names_str), round_decimal(org_label_best_acc,5),round_decimal(org_label_best_mac_f1,5)))
-    except:
-        pass
-    try:
-        logger.info("Results for {}+1 tract labels with best f1 weights: Acc {} F1 {}".format(len(tract_label_names_str)-1, round_decimal(tract_label_best_acc,5),round_decimal(tract_label_best_mac_f1,5)))        
-    except:
-        pass 
+            pass 
+        
     
 
 def train_val_paths():

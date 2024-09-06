@@ -11,7 +11,6 @@ import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
 
-
 def tract_knn(x, k):
     """
         input 
@@ -29,15 +28,13 @@ def tract_knn(x, k):
     
     return idx
 
-
 def get_tract_graph_feature(x, k_point_level=15, device=torch.device('cuda')):
     """"Get graph feature for points on a single streamline.
         input x:[N_fiber, num_dims, N_point]
         k: number of points to be selected for every point location
         idx: graph indices
-        fix_graph: if True, the graph structure is fixed. Otherwise, the graph structure is dynamically updated.
         device: the device to run the code    
-    """
+    """     
     num_fibers = x.size(0)
     num_dims = x.size(1)
     num_points = x.size(2)
@@ -71,14 +68,18 @@ class tract_DGCNN_cls(nn.Module):
         self.k_point_level = args.k_point_level
         self.device = device
         self.num_out_classes = num_classes
+        self.mark_endpoints = args.mark_endpoints
         
         self.bn1 = nn.BatchNorm2d(64)
         self.bn2 = nn.BatchNorm2d(64)
         self.bn3 = nn.BatchNorm2d(128)
         self.bn4 = nn.BatchNorm2d(256)
         self.bn5 = nn.BatchNorm1d(args.emb_dims)
-
-        self.conv1 = nn.Sequential(nn.Conv2d(3*2, 64, kernel_size=1, bias=False),
+        if self.mark_endpoints:
+            endpoints_dim=1
+        else:
+            endpoints_dim=0
+        self.conv1 = nn.Sequential(nn.Conv2d((3+endpoints_dim)*2, 64, kernel_size=1, bias=False),
                                    self.bn1,
                                    nn.LeakyReLU(negative_slope=0.2))
         self.conv2 = nn.Sequential(nn.Conv2d(64*2, 64, kernel_size=1, bias=False),
@@ -102,43 +103,79 @@ class tract_DGCNN_cls(nn.Module):
         self.linear3 = nn.Linear(256, self.num_out_classes)
 
     def forward(self, x, info_point_set):
-        """x (num_fiber, 3, num_points)
-           info_point_set: local+global feature (num_fiber, 3, num_points, fiber_level_k) """
+        """x (num_fiber, 4, num_points)
+        info_point_set: local+global feature (num_fiber, 4, num_points, fiber_level_k) """
         num_fiber = x.size(0)
-        if self.fiber_level_k + self.fiber_level_k_global == 0:
-            #* only use neighbor points for each streamline (process each streamline individually), no local+global info
-            x = get_tract_graph_feature(x, k_point_level=self.k_point_level, device=self.device)      # (batch_size, 3, num_points) -> (batch_size, 3*2, num_points, k)
-        else:
-            #* input local+global info for each streamline
-            x = x[:,:,:,None].repeat(1,1,1,self.fiber_level_k+self.fiber_level_k_global)             # (num_fiber, 3, num_points) -> (num_fiber, 3, num_points, fiber_k)
-            x = torch.cat((info_point_set-x, x),dim=1)   #  (num_fiber, 3*2, num_points, fiber_k)
-        x = self.conv1(x)                       # (num_fiber, 3*2, num_points, fiber_k) -> (num_fiber, 64, num_points, fiber_k)
-        x1 = x.max(dim=-1, keepdim=False)[0]    # (num_fiber, 64,num_points, fiber_k) -> (num_fiber,64, num_points)
-
-        x = get_tract_graph_feature(x1, k_point_level=self.k_point_level, device=self.device)     # (num_fiber, 64, num_points) -> (num_fiber, 64*2, num_points, k)
-        x = self.conv2(x)                       # (num_fiber, 64*2, num_points, k) -> (num_fiber, 64, num_points, k)
-        x2 = x.max(dim=-1, keepdim=False)[0]    # (num_fiber, 64,  num_points, k) -> (num_fiber, 64, num_points)
         
-        x = get_tract_graph_feature(x2, k_point_level=self.k_point_level, device=self.device)     # (num_fiber, 64, num_points) -> (num_fiber, 64*2, num_points, k)
-        x = self.conv3(x)                       # (num_fiber, 64*2, num_points, k) -> (num_fiber, 128, num_points, k)
-        x3 = x.max(dim=-1, keepdim=False)[0]    # (num_fiber, 128, num_points, k) -> (num_fiber, 128, num_points)
+        if self.mark_endpoints:
+            # Apply endpoint marking before the first convolution
+            x = add_endpoint_marker(x)
 
-        x = get_tract_graph_feature(x3, k_point_level=self.k_point_level, device=self.device)     # (num_fiber, 128, num_points) -> (num_fiber, 128*2, num_points, k)
-        x = self.conv4(x)                       # (num_fiber, 128*2, num_points, k) -> (num_fiber, 256, num_points, k)
-        x4 = x.max(dim=-1, keepdim=False)[0]    # (num_fiber, 256, num_points, k) -> (num_fiber, 256, num_points)
+        if self.fiber_level_k + self.fiber_level_k_global == 0:
+            # Only use neighbor points for each streamline (process each streamline individually), no local+global info
+            x = get_tract_graph_feature(x, k_point_level=self.k_point_level, device=self.device)      # (num_fiber, 4, num_points) -> (num_fiber, 8, num_points, k)
+
+        else:
+            # Input local+global info for each streamline
+            x = x[:, :, :, None].repeat(1, 1, 1, self.fiber_level_k + self.fiber_level_k_global)  # (num_fiber, 4, num_points) -> (num_fiber, 4, num_points, fiber_k)
+            x = torch.cat((info_point_set - x, x), dim=1)  # (num_fiber, 8, num_points, fiber_k)
+        # import pdb
+        # pdb.set_trace()
+        x = self.conv1(x)  # (num_fiber, 8, num_points, fiber_k) -> (num_fiber, 64, num_points, fiber_k)
+        x1 = x.max(dim=-1, keepdim=False)[0]  # (num_fiber, 64, num_points, fiber_k) -> (num_fiber, 64, num_points)
+
+        x = get_tract_graph_feature(x1, k_point_level=self.k_point_level, device=self.device)  # (num_fiber, 64, num_points) -> (num_fiber, 128, num_points, k)
+        x = self.conv2(x)  # (num_fiber, 128, num_points, k) -> (num_fiber, 64, num_points, k)
+        x2 = x.max(dim=-1, keepdim=False)[0]  # (num_fiber, 64, num_points, k) -> (num_fiber, 64, num_points)
+
+        x = get_tract_graph_feature(x2, k_point_level=self.k_point_level, device=self.device)  # (num_fiber, 64, num_points) -> (num_fiber, 128, num_points, k)
+        x = self.conv3(x)  # (num_fiber, 128, num_points, k) -> (num_fiber, 128, num_points, k)
+        x3 = x.max(dim=-1, keepdim=False)[0]  # (num_fiber, 128, num_points, k) -> (num_fiber, 128, num_points)
+
+        x = get_tract_graph_feature(x3, k_point_level=self.k_point_level, device=self.device)  # (num_fiber, 128, num_points) -> (num_fiber, 256, num_points, k)
+        x = self.conv4(x)  # (num_fiber, 256, num_points, k) -> (num_fiber, 256, num_points, k)
+        x4 = x.max(dim=-1, keepdim=False)[0]  # (num_fiber, 256, num_points, k) -> (num_fiber, 256, num_points)
 
         x = torch.cat((x1, x2, x3, x4), dim=1)  # (num_fiber, 64+64+128+256, num_points)
 
-        x = self.conv5(x)                       # (num_fiber, 64+64+128+256, num_points) -> (num_fiber, emb_dims, num_points)
-        x1 = F.adaptive_max_pool1d(x, 1).view(num_fiber, -1)           # (num_fiber, emb_dims, num_points) -> (num_fiber, emb_dims)
-        x2 = F.adaptive_avg_pool1d(x, 1).view(num_fiber, -1)           # (num_fiber, emb_dims, num_points) -> (num_fiber, emb_dims)
-        x = torch.cat((x1, x2), 1)              # (num_fiber, emb_dims*2)
+        x = self.conv5(x)  # (num_fiber, 512, num_points) -> (num_fiber, emb_dims, num_points)
+        x1 = F.adaptive_max_pool1d(x, 1).view(num_fiber, -1)  # (num_fiber, emb_dims, num_points) -> (num_fiber, emb_dims)
+        x2 = F.adaptive_avg_pool1d(x, 1).view(num_fiber, -1)  # (num_fiber, emb_dims, num_points) -> (num_fiber, emb_dims)
+        x = torch.cat((x1, x2), 1)  # (num_fiber, emb_dims*2)
 
-        x = F.leaky_relu(self.bn6(self.linear1(x)), negative_slope=0.2) # (num_fiber, emb_dims*2) -> (num_fiber, 512)
+        x = F.leaky_relu(self.bn6(self.linear1(x)), negative_slope=0.2)  # (num_fiber, emb_dims*2) -> (num_fiber, 512)
         x = self.dp1(x)
-        x = F.leaky_relu(self.bn7(self.linear2(x)), negative_slope=0.2) # (num_fiber, 512) -> (num_fiber, 256)
+        x = F.leaky_relu(self.bn7(self.linear2(x)), negative_slope=0.2)  # (num_fiber, 512) -> (num_fiber, 256)
         x = self.dp2(x)
-        x = self.linear3(x)                                             # (num_fiber, 256) -> (num_fiber, output_channels)
+        x = self.linear3(x)  # (num_fiber, 256) -> (num_fiber, output_channels)
         x = F.log_softmax(x, dim=1)
-        
+
         return x
+
+import math
+
+def add_endpoint_marker(x):
+    # """Add sophisticated positional encoding as an additional feature."""
+    # num_fibers, num_dims, num_points = x.size()
+    
+    # # Add endpoint marker: 1 for start and end, 0 for others
+    # endpoint_marker = torch.zeros(num_fibers, 1, num_points, device=x.device)
+    # endpoint_marker[:, :, 0] = 1  # Start point
+    # endpoint_marker[:, :, -1] = 1  # End point
+    
+    # # Concatenate positional encoding and endpoint marker to the original features
+    # x = torch.cat((x, endpoint_marker), dim=1)  # New shape: [N_fiber, num_dims + num_dims + 1, N_point]
+    
+    """Add normalized positional encoding (0 to 1) to each point."""
+    
+    num_fibers, num_dims, num_points = x.size()
+
+    # Normalized positional encoding: 0 for the first point, ..., 1 for the last
+    position_marker = torch.linspace(0, 1, steps=num_points, device=x.device)  # Create [0, ..., 1]
+    position_marker = position_marker.unsqueeze(0).unsqueeze(0).repeat(num_fibers, 1, 1)  # Expand to match x: [N_fiber, 1, N_point]
+    
+    # Concatenate position encoding with the original features
+    x = torch.cat((x, position_marker), dim=1)  # New shape: [N_fiber, num_dims + 1, N_point]
+    # import pdb
+    # pdb.set_trace()
+    return x

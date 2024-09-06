@@ -120,13 +120,14 @@ class unrelatedHCP_PatchData(data.Dataset):
         
         if self.samples_per_class.sum().item() != len(self.features):
             raise ValueError(f"Sum of samples_per_class ({samples_per_class.sum().item()}) does not match the number of features ({len(self.features)}).")
-        
+
         # calculate brain-level features  [n_subject, n_fiber, n_point, n_feat], labels [n_subject, n_fiber, n_point or 1]
         self.brain_features, self.brain_labels = self._cal_brain_feat()
-        
+
         # calculate local global features/representations [n_subject*n_fiber, n_point, n_feat], [n_subject*n_fiber, n_point or 1], [n_subject*n_fiber, n_point, n_feat, k]
         # [n_subject*n_fiber, n_point, n_feat], [n_subject*n_fiber, n_point or 1], [n_subject*n_fiber, n_point, n_feat, k], [n_subject, n_point, n_feat, k_global], [n_subject*n_fiber, 1]
         self.org_feat, self.org_label, self.local_feat, self.global_feat, self.new_subidx = self._cal_info_feat()
+
         
     def _select_relevant_data(self):
         """Select the relevant features and labels for each subject, then delete unused data."""

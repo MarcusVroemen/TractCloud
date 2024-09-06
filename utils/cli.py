@@ -55,6 +55,7 @@ def create_parser():
     parser.add_argument('--atlas', type=str, default='org (800clusters+800outliers)', help='Atlas used')
     parser.add_argument('--class_weighting', type=float, default=0, help='Class weights, 0 is no weights, scales quadratically')
     parser.add_argument('--encoding', type=str, default='default', help='Method of encoding 2D connectome labels')
+    parser.add_argument('--mark_endpoints', default=False, action='store_true', help='Mark streamline endpoints in model')
     
     return parser
 

@@ -102,3 +102,6 @@ ENV/
 .ropeproject
 
 *.pickle
+tractography/txt_files/
+tractography/UKB_paper_scripts/
+plots/

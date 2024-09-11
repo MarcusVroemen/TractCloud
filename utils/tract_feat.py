@@ -7,15 +7,7 @@ import matplotlib.pyplot as plt
 
 sys.path.append('..')
 
-def feat_RAS(pd_tract, number_of_points=15):
-    """The most simple feature for initial test"""
 
-    fiber_array = wma.fibers.FiberArray()
-    fiber_array.convert_from_polydata(pd_tract, points_per_fiber=number_of_points)
-    # fiber_array_r, fiber_array_a, fiber_array_s have the same size: [number of fibers, points of each fiber]
-    feat = np.dstack((fiber_array.fiber_array_r, fiber_array.fiber_array_a, fiber_array.fiber_array_s))
-
-    return feat, fiber_array
 
 class CustomFiberArray(wma.fibers.FiberArray):
     def convert_from_polydata(self, input_vtk_polydata, points_per_fiber=None, distribution='equidistant', decay_factor=2.0):
@@ -68,20 +60,40 @@ class CustomFiberArray(wma.fibers.FiberArray):
                     print(f"<{os.path.basename(__file__)}> Line: {lidx} / {self.number_of_fibers}")
                     print(f"<{os.path.basename(__file__)}> number of points: {line_length}")
 
-            # loop over the indices that we want and get those points
             pidx = 0
-            for line_index in self._calculate_line_indices(line_length,
-                                                    self.points_per_fiber, distribution, decay_factor):
+            for line_index in self._calculate_line_indices(line_length, self.points_per_fiber, distribution, decay_factor):
+                # Get the lower and upper indices for interpolation
+                lower_idx = int(np.floor(line_index))  # Floor index
+                upper_idx = int(np.ceil(line_index))   # Ceil index
 
-                # do nearest neighbor interpolation: round index
-                ptidx = line_ptids.GetId(int(round(line_index)))
+                # If the line_index is an integer, just use the point at that index
+                if distribution == 'equidistant' or lower_idx == upper_idx:
+                    ptidx = line_ptids.GetId(lower_idx)
+                    point = inpoints.GetPoint(ptidx)
+                else: # Interpolate between points
+                    # Interpolation factor (how far line_index is between lower_idx and upper_idx)
+                    t = line_index - lower_idx
+                    
+                    # Get points at lower_idx and upper_idx
+                    ptidx_lower = line_ptids.GetId(lower_idx)
+                    ptidx_upper = line_ptids.GetId(upper_idx)
 
-                point = inpoints.GetPoint(ptidx)
+                    point_lower = inpoints.GetPoint(ptidx_lower)
+                    point_upper = inpoints.GetPoint(ptidx_upper)
 
+                    # Linearly interpolate between the two points
+                    point = [
+                        (1 - t) * point_lower[0] + t * point_upper[0],
+                        (1 - t) * point_lower[1] + t * point_upper[1],
+                        (1 - t) * point_lower[2] + t * point_upper[2]
+                    ]
+
+                # Store the interpolated point in the fiber arrays
                 self.fiber_array_r[lidx, pidx] = point[0]
                 self.fiber_array_a[lidx, pidx] = point[1]
                 self.fiber_array_s[lidx, pidx] = point[2]
-                pidx = pidx + 1
+
+                pidx += 1
 
         # initialize hemisphere info
         if self.hemispheres:
@@ -168,9 +180,16 @@ def read_tractography(tractography_path):
     feat = np.dstack((fiber_array.fiber_array_r, fiber_array.fiber_array_a, fiber_array.fiber_array_s))
     return feat, fiber_array
 
+def feat_RAS(pd_tract, number_of_points=15, decay_factor=0):
+    """The most simple feature for initial test"""
+    fiber_array = CustomFiberArray()
+    fiber_array.convert_from_polydata(pd_tract, points_per_fiber=number_of_points, distribution='exponential', decay_factor=decay_factor)
+    # fiber_array_r, fiber_array_a, fiber_array_s have the same size: [number of fibers, points of each fiber]
+    feat = np.dstack((fiber_array.fiber_array_r, fiber_array.fiber_array_a, fiber_array.fiber_array_s))
 
+    return feat, fiber_array
 
 if __name__ == "__main__":
     # Visualize how the streamline sampling is performed with exponential mode
     fiber_array = CustomFiberArray()
-    fiber_array.visualize_fiber_distributions(input_line_length=100, output_line_length=15, decay_factor=0, path_plots="../plots/")
+    fiber_array.visualize_fiber_distributions(input_line_length=100, output_line_length=15, decay_factor=8, path_plots="../plots/")

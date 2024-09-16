@@ -9,6 +9,7 @@ import matplotlib.colors as mcolors
 from sklearn.metrics import mean_squared_error, precision_recall_fscore_support, classification_report, accuracy_score, confusion_matrix 
 from scipy.stats import pearsonr, spearmanr, wasserstein_distance
 from utils.metrics_plots import classify_report, process_curves, calculate_acc_prec_recall_f1, best_swap, save_best_weights
+from sklearn.metrics import precision_score, f1_score, recall_score
 from numpy.linalg import norm
 import networkx as nx
 import pprint
@@ -70,8 +71,8 @@ def plot_connectome(connectome_matrix, output_file, title, log_scale, difference
     plt.xlabel('node')
     plt.ylabel('node')
     num_nodes = connectome_matrix.shape[0]
-    plt.xticks(ticks=np.arange(num_nodes), labels=np.arange(1, num_nodes+1))
-    plt.yticks(ticks=np.arange(num_nodes), labels=np.arange(1, num_nodes+1))
+    plt.xticks(ticks=np.arange(9, num_nodes, 10), labels=np.arange(10, num_nodes, 10))
+    plt.yticks(ticks=np.arange(9, num_nodes, 10), labels=np.arange(10, num_nodes, 10))
     
     # Save the plot as an image file
     plt.savefig(output_file, bbox_inches='tight', dpi=500)
@@ -105,9 +106,9 @@ def label_wise_metrics(true_labels, pred_labels):
     unique_labels = set(true_labels) | set(pred_labels)
     
     accuracy = label_wise_accuracy(true_labels, pred_labels)
-    precision = {label: precision_score(true_labels, pred_labels, labels=[label], average='binary', zero_division=0) for label in unique_labels}
-    recall = {label: recall_score(true_labels, pred_labels, labels=[label], average='binary', zero_division=0) for label in unique_labels}
-    f1 = {label: f1_score(true_labels, pred_labels, labels=[label], average='binary', zero_division=0) for label in unique_labels}
+    precision = precision_score(true_labels, pred_labels, labels=[label], average='none', zero_division=0)
+    recall = recall_score(true_labels, pred_labels, labels=[label], average='none', zero_division=0)
+    f1 = f1_score(true_labels, pred_labels, labels=[label], average='none', zero_division=0)
     
     return accuracy, precision, recall, f1
 
@@ -145,64 +146,62 @@ class ConnectomeMetrics:
         self.percentile_change_connectome()
         self.accuracy_connectome()
         
-        self.accuracy_per_label_decoded, self.precision_per_label_decoded, self.recall_per_label_decoded, self.f1_per_label_decoded = label_wise_metrics(self.true_labels_decoded, self.pred_labels_decoded)
-        self.accuracy_connectome()
-        self.precision_connectome()
-        self.f1_connectome()
-        self.recall_connectome()
-        self.plot_all_metrics()
+        # self.accuracy_per_label_decoded, self.precision_per_label_decoded, self.recall_per_label_decoded, self.f1_per_label_decoded = label_wise_metrics(self.true_labels_decoded, self.pred_labels_decoded)
+        # self.accuracy_connectome()
+        # self.precision_connectome()
+        # self.f1_connectome()
+        # self.recall_connectome()
+        # self.plot_all_metrics()
         
         self.compute_metrics()
-        # pprint.pprint(self.results)
+        # # pprint.pprint(self.results)
         self.compute_network_metrics()
         # pprint.pprint(self.results)
-        # import pdb
-        # pdb.set_trace()
         
-    def accuracy_connectome(self):
-        self.acc_connectome = create_connectome(self.accuracy_per_label_decoded, self.num_labels)
-        save_connectome(self.acc_connectome, self.out_path, title='acc')
-        plot_connectome(self.acc_connectome, f"{self.out_path}/connectome_acc.png", f"Accuracy connectome", difference='accuracy', log_scale=False)
+    # def accuracy_connectome(self):
+    #     self.acc_connectome = create_connectome(self.accuracy_per_label_decoded, self.num_labels)
+    #     save_connectome(self.acc_connectome, self.out_path, title='acc')
+    #     plot_connectome(self.acc_connectome, f"{self.out_path}/connectome_acc.png", f"Accuracy connectome", difference='accuracy', log_scale=False)
 
-    def precision_connectome(self):
-        self.prec_connectome = create_connectome(self.precision_per_label_decoded, self.num_labels)
-        save_connectome(self.prec_connectome, self.out_path, title='prec')
-        plot_connectome(self.prec_connectome, f"{self.out_path}/connectome_prec.png", f"Precision connectome", difference='accuracy', log_scale=False)
+    # def precision_connectome(self):
+    #     self.prec_connectome = create_connectome(self.precision_per_label_decoded, self.num_labels)
+    #     save_connectome(self.prec_connectome, self.out_path, title='prec')
+    #     plot_connectome(self.prec_connectome, f"{self.out_path}/connectome_prec.png", f"Precision connectome", difference='accuracy', log_scale=False)
 
-    def f1_connectome(self):
-        self.f1_connectome = create_connectome(self.f1_per_label_decoded, self.num_labels)
-        save_connectome(self.f1_connectome, self.out_path, title='f1')
-        plot_connectome(self.f1_connectome, f"{self.out_path}/connectome_f1.png", f"F1-score connectome", difference='accuracy', log_scale=False)
+    # def f1_connectome(self):
+    #     self.f1_connectome = create_connectome(self.f1_per_label_decoded, self.num_labels)
+    #     save_connectome(self.f1_connectome, self.out_path, title='f1')
+    #     plot_connectome(self.f1_connectome, f"{self.out_path}/connectome_f1.png", f"F1-score connectome", difference='accuracy', log_scale=False)
 
-    def recall_connectome(self):
-        self.recall_connectome = create_connectome(self.recall_per_label_decoded, self.num_labels)
-        save_connectome(self.recall_connectome, self.out_path, title='recall')
-        plot_connectome(self.recall_connectome, f"{self.out_path}/connectome_recall.png", f"Recall connectome", difference='accuracy', log_scale=False)
+    # def recall_connectome(self):
+    #     self.recall_connectome = create_connectome(self.recall_per_label_decoded, self.num_labels)
+    #     save_connectome(self.recall_connectome, self.out_path, title='recall')
+    #     plot_connectome(self.recall_connectome, f"{self.out_path}/connectome_recall.png", f"Recall connectome", difference='accuracy', log_scale=False)
     
-    def plot_all_metrics(self):
-        fig, axs = plt.subplots(2, 3, figsize=(24, 16))
-        fig.suptitle("Comparison of Metrics Connectomes", fontsize=16)
+    # def plot_all_metrics(self):
+    #     fig, axs = plt.subplots(2, 3, figsize=(24, 16))
+    #     fig.suptitle("Comparison of Metrics Connectomes", fontsize=16)
 
-        metrics = [
-            (self.acc_connectome, "Accuracy"),
-            (self.prec_connectome, "Precision"),
-            (self.recall_connectome, "Recall"),
-            (self.f1_connectome, "F1-score"),
-            (self.difference_connectome, "Difference (True - Predicted)"),
-            (self.percentchange_connectome, "Percent Change")
-        ]
+    #     metrics = [
+    #         (self.acc_connectome, "Accuracy"),
+    #         (self.prec_connectome, "Precision"),
+    #         (self.recall_connectome, "Recall"),
+    #         (self.f1_connectome, "F1-score"),
+    #         (self.difference_connectome, "Difference (True - Predicted)"),
+    #         (self.percentchange_connectome, "Percent Change")
+    #     ]
 
-        for i, (metric, title) in enumerate(metrics):
-            ax = axs[i // 3, i % 3]
-            im = ax.imshow(metric, cmap='viridis', vmin=0, vmax=1)
-            ax.set_title(title)
-            ax.set_xlabel('node')
-            ax.set_ylabel('node')
-            fig.colorbar(im, ax=ax, label='Score')
+    #     for i, (metric, title) in enumerate(metrics):
+    #         ax = axs[i // 3, i % 3]
+    #         im = ax.imshow(metric, cmap='viridis', vmin=0, vmax=1)
+    #         ax.set_title(title)
+    #         ax.set_xlabel('node')
+    #         ax.set_ylabel('node')
+    #         fig.colorbar(im, ax=ax, label='Score')
 
-        plt.tight_layout()
-        plt.savefig(f"{self.out_path}/all_metrics_comparison.png", dpi=300, bbox_inches='tight')
-        plt.close()
+    #     plt.tight_layout()
+    #     plt.savefig(f"{self.out_path}/all_metrics_comparison.png", dpi=300, bbox_inches='tight')
+    #     plt.close()
         
     def plot_connectomes(self, zero_diagonal=False, log_scale=True):
         # Plots with diagonal    

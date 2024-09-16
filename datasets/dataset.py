@@ -72,9 +72,9 @@ class RealData_PatchData(data.Dataset):
 
 
 class unrelatedHCP_PatchData(data.Dataset):
-    def __init__(self, root, out_path, logger, split='train', num_fiber_per_brain=10000,num_point_per_fiber=15, 
+    def __init__(self, root, out_path, logger, split='train', num_fiber_per_brain=10000, num_point_per_fiber=15, 
                  use_tracts_training=False, k=0, k_global=0, rot_ang_lst=[0,0,0], scale_ratio_range=[0,0], trans_dis=0.0,
-                 aug_axis_lst=['LR','AP', 'SI'], aug_times=10, cal_equiv_dist=False, k_ds_rate=0.1, recenter=False, include_org_data=False, encoding='default'):        
+                 aug_axis_lst=['LR','AP', 'SI'], aug_times=10, cal_equiv_dist=False, k_ds_rate=0.1, recenter=False, include_org_data=False, encoding='default', atlas='aparc+aseg', threshold=0):        
         self.root = root
         self.out_path = out_path
         self.split = split
@@ -91,7 +91,12 @@ class unrelatedHCP_PatchData(data.Dataset):
         self.aug_times = aug_times
         self.k_ds_rate=k_ds_rate  
         self.recenter = recenter
+        self.atlas = atlas
+        self.threshold = threshold
         self.include_org_data = include_org_data
+        self.num_labels={"aparc+aseg":85,
+                         "aparc.a2009s+aseg":165}
+        
         
         # data save for debugging
         self.save_aug_data = True
@@ -105,15 +110,23 @@ class unrelatedHCP_PatchData(data.Dataset):
         # load data
         with open(os.path.join(root, '{}.pickle'.format(split)), 'rb') as file:
             data_dict = pickle.load(file)
+
         self.features = data_dict['feat']
-        self.labels = data_dict['label']
-        self.label_names = data_dict['label_name']
+        self.labels = data_dict[f'label_{self.atlas}']
+        self.label_names = data_dict[f'label_name_{self.atlas}']
         self.subject_ids = data_dict['subject_id']
         self.logger.info('Load {} data'.format(self.split))
-
+        print(len(np.unique(self.labels)))
+        # Threshold 
+        self._adjust_labels()
+        print(len(np.unique(self.labels)))
+        # import pdb
+        # pdb.set_trace()
         # Select relevant data and remove unused data
         self._select_relevant_data()
+        print(len(np.unique(self.labels)))
 
+                
         # Compute the number of samples per class
         self.num_classes = len(np.unique(self.label_names))
         self.samples_per_class = self._compute_samples_per_class()
@@ -128,14 +141,38 @@ class unrelatedHCP_PatchData(data.Dataset):
         # [n_subject*n_fiber, n_point, n_feat], [n_subject*n_fiber, n_point or 1], [n_subject*n_fiber, n_point, n_feat, k], [n_subject, n_point, n_feat, k_global], [n_subject*n_fiber, 1]
         self.org_feat, self.org_label, self.local_feat, self.global_feat, self.new_subidx = self._cal_info_feat()
 
-        
+    def _adjust_labels(self):
+        """Change labels: unknown to zero and/or rare labels to 0"""
+        # Set unknown labels to 0 (0,0; 0,1; 0,2 etc)
+        if self.threshold<0:
+            # self.labels = [0 if isinstance(x, int) and 0 <= x < self.num_labels[self.atlas] else x for x in self.labels]
+            self.labels = np.where(np.isin(self.labels, list(range(self.num_labels[self.atlas]))), 0, self.labels)
+            print(self.labels[:20])
+        if abs(self.threshold)==50: # Connections present in less than 50% of subjects are filtered out, set to 0
+            rare_labels = np.loadtxt(f'/media/volume/HCP_diffusion_MV/TrainData_MRtrix_100_symmetric_D0/rare_labels_{abs(self.threshold)}%_{self.atlas}.txt', dtype=int)
+            self.labels = np.where(np.isin(self.labels, list(rare_labels)), 0, self.labels)
+        elif self.threshold>0: # Each must have at least 100 conenctions
+            if self.split=='train':
+                unique_labels, counts = np.unique(self.labels, return_counts=True)
+                rare_labels = unique_labels[counts < self.threshold]
+                
+                self.labels = np.where(np.isin(self.labels, list(rare_labels)), 0, self.labels)
+                
+                with open(f'/media/volume/HCP_diffusion_MV/TrainData_MRtrix_100_symmetric_D0/rare_labels_{self.threshold}_{self.atlas}.txt', 'w') as f:
+                    for label in rare_labels:
+                        f.write(f'{label}\n')
+            else:
+                rare_labels = np.loadtxt(f'/media/volume/HCP_diffusion_MV/TrainData_MRtrix_100_symmetric_D0/rare_labels_{self.threshold}_{self.atlas}.txt', dtype=int)
+                self.labels = np.where(np.isin(self.labels, list(rare_labels)), 0, self.labels)
+            
+
     def _select_relevant_data(self):
         """Select the relevant features and labels for each subject, then delete unused data."""
         unique_subject_ids = np.unique(self.subject_ids)
         selected_features = []
         selected_labels = []
         selected_subject_ids = []
-
+        
         for unique_id in unique_subject_ids:
             cur_idxs = np.where(self.subject_ids == unique_id)[0]
             np.random.shuffle(cur_idxs)

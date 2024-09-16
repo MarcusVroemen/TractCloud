@@ -52,10 +52,12 @@ def create_parser():
     parser.add_argument('--include_org_data', default=False, action='store_true', help='Include original data when augmenting data')
     
     parser.add_argument('--connectome', default=False, action='store_true', help='Testing on data returns connectomes and metrics')
-    parser.add_argument('--atlas', type=str, default='org (800clusters+800outliers)', help='Atlas used')
+    parser.add_argument('--atlas', type=str, default='aparc+aseg', help='Atlas used')
     parser.add_argument('--class_weighting', type=float, default=0, help='Class weights, 0 is no weights, scales quadratically')
     parser.add_argument('--encoding', type=str, default='default', help='Method of encoding 2D connectome labels')
     parser.add_argument('--mark_endpoints', default=False, action='store_true', help='Mark streamline endpoints in model')
+    parser.add_argument('--fibersampling', type=float, default=0, help='Distance in fiber sampling, higher means points higher distribution near ends')
+    parser.add_argument('--threshold', type=int, default=0, help='')
     
     return parser
 

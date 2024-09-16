@@ -11,10 +11,27 @@ import seaborn as sns
 from sklearn.metrics import classification_report, accuracy_score, precision_recall_fscore_support, confusion_matrix 
 from utils.funcs import round_decimal
 
-def calculate_acc_prec_recall_f1(labels_lst, predicted_lst, average='macro'):
-    acc = accuracy_score(y_true=labels_lst, y_pred=predicted_lst)
-    # Beta: The strength of recall versus precision in the F-score. beta == 1.0 means recall and precision are equally important, that is F1-score
-    mac_precision, mac_recall, mac_f1, _ = precision_recall_fscore_support(y_true=labels_lst, y_pred=predicted_lst, beta=1.0, average=average, zero_division=np.nan) # ignore empty labels
+def calculate_acc_prec_recall_f1(labels_lst, predicted_lst, ignore_labels=None, average='macro'):
+    if ignore_labels is None:
+        ignore_labels = []
+
+    # Create a mask to ignore specified labels
+    mask = ~np.isin(labels_lst, ignore_labels)
+
+    # Filter labels and predictions
+    filtered_labels = np.array(labels_lst)[mask]
+    filtered_predictions = np.array(predicted_lst)[mask]
+
+    # Calculate metrics on the filtered data
+    acc = accuracy_score(y_true=filtered_labels, y_pred=filtered_predictions)
+    mac_precision, mac_recall, mac_f1, _ = precision_recall_fscore_support(
+        y_true=filtered_labels, 
+        y_pred=filtered_predictions, 
+        beta=1.0, 
+        average=average, 
+        zero_division=np.nan
+    )
+    
     return acc, mac_precision, mac_recall, mac_f1
 
 def classify_report(labels_lst, predicted_lst, label_names, logger, out_path, metric_name, state, h5_name, obtain_conf_mat, save_h5=True, connectome=False):

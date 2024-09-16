@@ -19,17 +19,19 @@ def read_tractography(tractography_dir, decay_factor):
     return feat, fiber_array
 
 class TractCloudPreprocessor:
-    def __init__(self, input_dir, output_dir, subjects_file, atlases, encoding, min_fibers, decay_factor, split_ratios=(0.7, 0.1, 0.2), chunk_size=1):
+    def __init__(self, input_dir, output_dir, subjects_file, atlases, encoding, threshold, decay_factor, split_ratios=(0.7, 0.1, 0.2), chunk_size=1):
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.subjects_file = subjects_file
         self.atlases = atlases
         self.encoding = encoding
-        self.min_fibers = min_fibers
+        self.threshold = threshold
         self.decay_factor = decay_factor
         self.split_ratios = split_ratios
         self.chunk_size = chunk_size
 
+        os.makedirs(self.output_dir, exist_ok=True)
+        
         self.num_labels={"aparc+aseg":85,
                     "aparc.a2009s+aseg":165}
         
@@ -59,109 +61,10 @@ class TractCloudPreprocessor:
             encode_labels_txt(labels_path, encoded_labels_path, self.encoding, num_labels=self.num_labels[atlas])
             
             labels[:, i] = np.loadtxt(encoded_labels_path, dtype=int)
-        # Apply the filter to remove fibers with less than `min_fibers` labels
-        # labels, streamlines = threshold(labels, streamlines, self.min_fibers)
 
         subject_id_array = np.full(len(streamlines), subject_index, dtype=int)
-        # subject_id_array = np.full(labels.shape, subject_id, dtype=int) # use this if you want to work with indexes instead of the HCP ids
         
         return streamlines, labels, subject_id_array
-
-    def extract_data_by_subjects(self, subject_ids, selected_subjects, features, labels):
-        """Extract data corresponding to specific subject IDs."""
-        # import pdb
-        # pdb.set_trace()
-        mask = np.isin(subject_ids.squeeze(), selected_subjects).squeeze()
-        return features[mask], labels[mask], subject_ids[mask]
-
-    def save_data(self, features, labels, subject_ids):
-        """Save data into train, validation, and test splits."""
-        # Extract train, validation, and test data based on the subject splits
-        # Split the subject IDs into train, temp (val + test)
-        unique_subject_ids = np.unique(subject_ids)
-        self.train_subjects, temp_subjects = train_test_split(
-            unique_subject_ids, test_size=(1 - self.split_ratios[0]), random_state=42)
-        self.val_subjects, self.test_subjects = train_test_split(
-            temp_subjects, test_size=self.split_ratios[2] / (self.split_ratios[1] + self.split_ratios[2]), random_state=42)
-        
-        X_train, y_train, subj_train = self.extract_data_by_subjects(subject_ids, self.train_subjects, features, labels)
-        X_val, y_val, subj_val = self.extract_data_by_subjects(subject_ids, self.val_subjects, features, labels)
-        X_test, y_test, subj_test = self.extract_data_by_subjects(subject_ids, self.test_subjects, features, labels)
-
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir)
-
-        train_path = os.path.join(self.output_dir, 'train.pickle')
-        val_path = os.path.join(self.output_dir, 'val.pickle')
-        test_path = os.path.join(self.output_dir, 'test.pickle')
-
-        # Initialize dictionaries for storing data
-        print("Saving data to pickle files")
-        if os.path.exists(train_path) and os.path.exists(val_path) and os.path.exists(test_path):
-            with open(train_path, 'rb') as file:
-                train_dict = pickle.load(file)
-            with open(val_path, 'rb') as file:
-                val_dict = pickle.load(file)
-            with open(test_path, 'rb') as file:
-                test_dict = pickle.load(file)
-
-            # Concatenate the new data with the existing data
-            for i, atlas in enumerate(self.atlases):
-                train_dict[f'label_{atlas}'] = np.concatenate([train_dict[f'label_{atlas}'], y_train[:, i]], axis=0)
-                val_dict[f'label_{atlas}'] = np.concatenate([val_dict[f'label_{atlas}'], y_val[:, i]], axis=0)
-                test_dict[f'label_{atlas}'] = np.concatenate([test_dict[f'label_{atlas}'], y_test[:, i]], axis=0)
-
-            train_dict['feat'] = np.concatenate([train_dict['feat'], X_train], axis=0)
-            train_dict['subject_id'] = np.concatenate([train_dict['subject_id'], subj_train], axis=0)
-            val_dict['feat'] = np.concatenate([val_dict['feat'], X_val], axis=0)
-            val_dict['subject_id'] = np.concatenate([val_dict['subject_id'], subj_val], axis=0)
-            test_dict['feat'] = np.concatenate([test_dict['feat'], X_test], axis=0)
-            test_dict['subject_id'] = np.concatenate([test_dict['subject_id'], subj_test], axis=0)
-
-        else:
-            # Initialize the dictionaries if the files don't exist
-            train_dict = {}
-            val_dict = {}
-            test_dict = {}
-
-            for i, atlas in enumerate(self.atlases):
-                train_dict[f'label_{atlas}'] = y_train[:, i]
-                val_dict[f'label_{atlas}'] = y_val[:, i]
-                test_dict[f'label_{atlas}'] = y_test[:, i]
-
-            train_dict['feat'] = X_train
-            train_dict['subject_id'] = subj_train
-            val_dict['feat'] = X_val
-            val_dict['subject_id'] = subj_val
-            test_dict['feat'] = X_test
-            test_dict['subject_id'] = subj_test
-            
-            # Determine the number of labels based on encoding type
-            for i, atlas in enumerate(self.atlases):
-                if self.encoding == 'default':
-                    label_names = [f"{i}_{j}" for i in range(self.num_labels[atlas]) for j in range(self.num_labels[atlas])]
-                elif self.encoding == 'symmetric':
-                    label_names = [f"{i}_{j}" for i in range(self.num_labels[atlas]) for j in range(i, self.num_labels[atlas])]
-            train_dict[f'label_name_{atlas}'] = label_names
-            val_dict[f'label_name_{atlas}'] = label_names
-            test_dict[f'label_name_{atlas}'] = label_names
-        
-        # Save the updated data to pickle files
-        with open(train_path, 'wb') as file:
-            pickle.dump(train_dict, file)
-        with open(val_path, 'wb') as file:
-            pickle.dump(val_dict, file)
-        with open(test_path, 'wb') as file:
-            pickle.dump(test_dict, file)
-
-        # Store unique subject IDs for each split
-        subject_ids_split = {
-            "train": np.unique(subj_train),
-            "val": np.unique(subj_val),
-            "test": np.unique(subj_test)
-        }
-
-        self.update_metadata(features, labels, subject_ids, subject_ids_split)
 
     def process_data(self):
         # Read subject IDs from file to determine which subjects to process
@@ -198,14 +101,92 @@ class TractCloudPreprocessor:
             
             # Update the global subject index counter
             global_subject_index += (end - start)
-            # import pdb
-            # pdb.set_trace()
+
             features = np.vstack(features_list)
             labels = np.vstack(labels_list)
             subject_ids = np.hstack(subject_ids_list)
             
             # Append to the output files
             self.save_data(features, labels, subject_ids)
+    
+    def save_data(self, features, labels, subject_ids):
+        """Save data into train, validation, and test splits."""
+        # Select labels that occur in less than the threshold across subjects
+        rare_labels = {atlas: self.threshold_labels(labels[:, i], subject_ids, atlas) 
+                for i, atlas in enumerate(self.atlases)}
+
+        # Extract train, validation, and test data based on the subject splits
+        train_subjects, val_subjects, test_subjects = self.split_subjects(subject_ids)
+        data_splits = {
+            'train': self.extract_data_by_subjects(subject_ids, train_subjects, features, labels),
+            'val': self.extract_data_by_subjects(subject_ids, val_subjects, features, labels),
+            'test': self.extract_data_by_subjects(subject_ids, test_subjects, features, labels)
+        }
+        
+        self.save_data_to_pickle(data_splits, rare_labels)
+        
+        self.update_metadata(features, labels, subject_ids, {k: np.unique(v[2]) for k, v in data_splits.items()})
+
+    def split_subjects(self, subject_ids):
+        unique_subject_ids = np.unique(subject_ids)
+        train_subjects, temp_subjects = train_test_split(
+            unique_subject_ids, test_size=(1 - self.split_ratios[0]), random_state=42)
+        val_subjects, test_subjects = train_test_split(
+            temp_subjects, test_size=self.split_ratios[2] / (self.split_ratios[1] + self.split_ratios[2]), random_state=42)
+        return train_subjects, val_subjects, test_subjects
+    
+    def extract_data_by_subjects(self, subject_ids, selected_subjects, features, labels):
+        """Extract data corresponding to specific subject IDs."""
+        mask = np.isin(subject_ids.squeeze(), selected_subjects).squeeze()
+        return features[mask], labels[mask], subject_ids[mask]
+    
+    def save_data_to_pickle(self, data_splits, rare_labels):
+        
+        for split, (X, y, subj) in data_splits.items():
+            path = os.path.join(self.output_dir, f'{split}.pickle')
+            data_dict = self.load_existing_data(path)
+            
+            data_dict = self.update_data_dict(data_dict, X, y, subj, rare_labels)
+            
+            with open(path, 'wb') as file:
+                pickle.dump(data_dict, file)
+
+    def load_existing_data(self, path):
+        if os.path.exists(path):
+            with open(path, 'rb') as file:
+                return pickle.load(file)
+        return {}
+
+    def update_data_dict(self, data_dict, X, y, subj, rare_labels):
+        for i, atlas in enumerate(self.atlases):
+            data_dict[f'label_{atlas}'] = self.concat_or_assign(data_dict.get(f'label_{atlas}'), y[:, i])
+            data_dict[f'label_name_{atlas}'] = self.get_label_names(atlas)
+            # Change all unknown to 0
+            # data_dict[f'label_{atlas}_-1'] = [0 if isinstance(x, int) and 0 <= x < self.num_labels else x for x in data_dict[f'label_{atlas}_0']]
+            
+            # if self.threshold != 0: # Set rare labels to 0 and save this data as alternate labels with threshold
+            #     thresholded_labels = np.where(np.isin(y[:, i], list(rare_labels[atlas])), 0, y[:, i])
+            #     data_dict[f'label_{atlas}_{self.threshold}'] = self.concat_or_assign(
+            #         data_dict.get(f'label_{atlas}_{self.threshold}'), thresholded_labels)
+            #     data_dict[f'label_{atlas}_-{self.threshold}'] = [0 if isinstance(x, int) and 0 <= x < self.num_labels else x for x in data_dict[f'label_{atlas}_{self.threshold}']]
+        
+            # print(f'Labels with default settings for {atlas} atlas: {np.unique(data_dict[f"label_{atlas}_0"]).shape}')
+            # print(f'Labels with grouping unknowns for {atlas} atlas: {np.unique(data_dict[f"label_{atlas}_-1"]).shape}')
+            # print(f'Labels with thresholding for {atlas} atlas: {np.unique(data_dict[f"label_{atlas}_{self.threshold}"]).shape}')
+            # print(f'Labels with both for {atlas} atlas: {np.unique(data_dict[f"label_{atlas}_-{self.threshold}"]).shape}')
+        data_dict['feat'] = self.concat_or_assign(data_dict.get('feat'), X)
+        data_dict['subject_id'] = self.concat_or_assign(data_dict.get('subject_id'), subj)
+        
+        return data_dict
+
+    def concat_or_assign(self, existing_data, new_data):
+        return np.concatenate([existing_data, new_data], axis=0) if existing_data is not None else new_data
+
+    def get_label_names(self, atlas):
+        if self.encoding == 'default':
+            return [f"{i}_{j}" for i in range(self.num_labels[atlas]) for j in range(self.num_labels[atlas])]
+        elif self.encoding == 'symmetric':
+            return [f"{i}_{j}" for i in range(self.num_labels[atlas]) for j in range(i, self.num_labels[atlas])]
     
     def update_metadata(self, features, labels, subject_ids, subject_ids_split):
         """Update and save metadata based on processed data for multiple atlases."""
@@ -276,45 +257,68 @@ class TractCloudPreprocessor:
         
         print(f"Metadata successfully updated and saved to {metadata_path}")
     
-def threshold(labels, streamlines, min_fibers=10):
-    """
-    Filter streamlines and labels, removing any fibers assigned to labels 
-    with less than `min_fibers` fibers.
-    """
-    # Count occurrences of each label
-    unique_labels, counts = np.unique(labels, return_counts=True)
-    
-    # Identify labels with at least `min_fibers` fibers
-    valid_labels = unique_labels[counts >= min_fibers]
-    
-    # Print the labels that are being deleted
-    deleted_labels = unique_labels[counts < min_fibers]    
-    if deleted_labels.size > 0:
-        print(f"Labels deleted due to too few streamlines: {deleted_labels}")
-    
-    # Create a mask to filter out fibers with invalid labels
-    mask = np.isin(labels, valid_labels)
-    
-    # Filter the streamlines and labels
-    filtered_streamlines = streamlines[mask]
-    filtered_labels = labels[mask]
-    
-    return filtered_labels, filtered_streamlines
+    def threshold_labels(self, labels, subject_ids, atlas):
+        """
+        Set all labels to 0 if they are present in less than `threshold` percentage of subjects.
+
+        Args:
+        - labels: A numpy array of shape (n_samples,), where each entry is a label.
+        - subject_ids: A numpy array of shape (n_samples,), where each entry corresponds to a subject ID.
+        - threshold: The minimum percentage of subjects a label must be present in to avoid being set to 0 (default is 50%).
+
+        Returns:
+        - Adjusted labels where rare labels are set to 0.
+        """
+        # Get unique subject IDs
+        unique_subjects = np.unique(subject_ids)
+
+        # Initialize a dictionary to track how many subjects contain each label
+        label_subject_count = {}
+
+        # Iterate through the subjects and count how many subjects contain each label
+        for subject in unique_subjects:
+            subject_labels = np.unique(labels[subject_ids == subject])
+            for label in subject_labels:
+                if label not in label_subject_count:
+                    label_subject_count[label] = 0
+                label_subject_count[label] += 1
+
+        # Determine the threshold count based on the number of subjects
+        min_subject_count = len(unique_subjects) * (self.threshold/100)
+        print(f"Labels must be present in at least {min_subject_count:.2f} subjects to avoid being set to 0 (threshold: {self.threshold}%).")
+
+        # Create a set of labels that appear in less than the threshold number of subjects
+        rare_labels = {label for label, count in label_subject_count.items() if count < min_subject_count}
+        
+        # Count how many streamlines will be affected
+        streamlines_affected = np.sum(np.isin(labels, list(rare_labels)))
+        
+        print(f"Number of labels set to 0 (below threshold): {len(rare_labels)}")
+        print(f"Number of streamlines affected (labels set to 0): {streamlines_affected}")
+        print(f"Total streamlines: {len(labels)}")
+        print(f"Percentage of streamlines affected: {(streamlines_affected / len(labels)) * 100:.2f}%")
+        
+        with open(os.path.join(self.output_dir, f'rare_labels_{self.threshold}%_{atlas}.txt'), 'w') as f:
+            for rare_label in rare_labels:
+                f.write(f"{rare_label}\n")
+        
+        return rare_labels
 
     
 if __name__ == "__main__":
     # Parameters
     encoding='symmetric'
-    min_fibers=0
-    decay_factor=4
-    # Path
+    threshold=50 # Percentage of subjects, labels should be present in
+    decay_factor=0
+    n_subjects=100
+    # # Path
     base_dir="/media/volume/HCP_diffusion_MV/"
-    output_dir = os.path.join(base_dir, f"TrainData_MRtrix_100_{encoding}_D{decay_factor}") #_T{min_fibers}
+    output_dir = os.path.join(base_dir, f"TrainData_MRtrix_{n_subjects}_{encoding}_D{decay_factor}")
     TP = TractCloudPreprocessor(input_dir=os.path.join(base_dir, "data"),
                                 output_dir=output_dir,
-                                subjects_file=os.path.join(base_dir, "subjects_tractography_output_100.txt"),
+                                subjects_file=os.path.join(base_dir, f"subjects_tractography_output_{n_subjects}.txt"),
                                 atlases=["aparc+aseg", "aparc.a2009s+aseg"],
-                                encoding=encoding, min_fibers=min_fibers, decay_factor=decay_factor,
+                                encoding=encoding, threshold=threshold, decay_factor=decay_factor,
                                 chunk_size=100, split_ratios=(0.7, 0.1, 0.2))
     
     # Make plots

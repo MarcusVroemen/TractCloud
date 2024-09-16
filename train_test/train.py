@@ -45,7 +45,9 @@ def load_datasets(eval_split, args, test=False, logger=None):
                 k_ds_rate=args.k_ds_rate,
                 recenter=args.recenter,
                 include_org_data=args.include_org_data,
-                encoding=args.encoding)
+                encoding=args.encoding,
+                atlas=args.atlas,
+                threshold=args.threshold)
     else:
         train_dataset = None
         
@@ -67,7 +69,9 @@ def load_datasets(eval_split, args, test=False, logger=None):
         k_ds_rate=args.k_ds_rate,
         recenter=args.recenter,
         include_org_data=args.include_org_data,
-        encoding=args.encoding)
+        encoding=args.encoding,
+        atlas=args.atlas,
+        threshold=args.threshold)
 
     return train_dataset, eval_dataset
 
@@ -368,8 +372,11 @@ def meters(epoch, num_batch, total_loss, labels_lst, predicted_lst,
     # original labels 
     if args.connectome: # Use weighted metrics when predicting conenctomes because of the large class inbalance
         # average='weighted'
-        org_acc, mac_org_precision, mac_org_recall, mac_org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'macro')
-        org_acc, org_precision, org_recall, org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'weighted')
+        num_labels={"aparc+aseg":85,
+                    "aparc.a2009s+aseg":165}
+        labels_to_ignore=list(range(num_labels[args.atlas])) # ignore all labels with 0 (unknown) in the atlas
+        org_acc, mac_org_precision, mac_org_recall, mac_org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, labels_to_ignore, 'macro')
+        org_acc, org_precision, org_recall, org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, labels_to_ignore, 'weighted')
         org_acc_lst.append(org_acc)
         org_precision_lst.append([mac_org_precision, org_precision])
         org_recall_lst.append([mac_org_recall, org_recall])
@@ -424,8 +431,10 @@ def results_logging(args, logger, eval_state, label_names, org_labels_lst, org_p
             except:
                 pass
         else:
+            num_labels={"aparc+aseg":85,
+                    "aparc.a2009s+aseg":165}
             classify_report(org_labels_lst, org_predicted_lst, label_names_str, logger, args.out_log_path, args.best_metric,eval_state, h5_name, obtain_conf_mat=False, connectome=True)
-            CM = ConnectomeMetrics(org_labels_lst, org_predicted_lst, encoding=args.encoding, num_labels=85, out_path=args.out_log_path)
+            CM = ConnectomeMetrics(org_labels_lst, org_predicted_lst, encoding=args.encoding, num_labels=num_labels[args.atlas], out_path=args.out_log_path)
             logger.info(CM.format_metrics())
 
     if args.use_tracts_testing:
@@ -443,8 +452,7 @@ def results_logging(args, logger, eval_state, label_names, org_labels_lst, org_p
             logger.info("Results for {}+1 tract labels with best f1 weights: Acc {} F1 {}".format(len(tract_label_names_str)-1, round_decimal(tract_label_best_acc,5),round_decimal(tract_label_best_mac_f1,5)))        
         except:
             pass 
-        
-    
+            
 
 def train_val_paths():
     """paths"""
@@ -466,7 +474,7 @@ if __name__ == '__main__':
     print("Random Seed: ", args.manualSeed)
     fix_seed(args.manualSeed)
     # Adjustment to get training 
-    # args.recenter=False #TODO compute centers later on
+    # args.recenter=False 
     args.include_org_data=False
     # adaptively change the args
     args = adaptive_args(args)

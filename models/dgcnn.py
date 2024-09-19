@@ -68,18 +68,15 @@ class tract_DGCNN_cls(nn.Module):
         self.k_point_level = args.k_point_level
         self.device = device
         self.num_out_classes = num_classes
-        self.mark_endpoints = args.mark_endpoints
+        # self.marking = args.mark_endpoints
         
         self.bn1 = nn.BatchNorm2d(64)
         self.bn2 = nn.BatchNorm2d(64)
         self.bn3 = nn.BatchNorm2d(128)
         self.bn4 = nn.BatchNorm2d(256)
         self.bn5 = nn.BatchNorm1d(args.emb_dims)
-        if self.mark_endpoints:
-            endpoints_dim=1
-        else:
-            endpoints_dim=0
-        self.conv1 = nn.Sequential(nn.Conv2d((3+endpoints_dim)*2, 64, kernel_size=1, bias=False),
+
+        self.conv1 = nn.Sequential(nn.Conv2d((3)*2, 64, kernel_size=1, bias=False),
                                    self.bn1,
                                    nn.LeakyReLU(negative_slope=0.2))
         self.conv2 = nn.Sequential(nn.Conv2d(64*2, 64, kernel_size=1, bias=False),
@@ -102,14 +99,26 @@ class tract_DGCNN_cls(nn.Module):
         self.dp2 = nn.Dropout(p=args.dropout)
         self.linear3 = nn.Linear(256, self.num_out_classes)
 
+    def create_fixed_attention_map(self, num_fibers, num_points):
+        # Fixed attention: Higher weights for the first and last points
+        attention_weights = torch.ones(num_fibers, 1, num_points).to(self.device)
+        attention_weights[:, :, 0] = 2  # Start point
+        attention_weights[:, :, -1] = 2  # End point
+        return attention_weights
+
     def forward(self, x, info_point_set):
-        """x (num_fiber, 4, num_points)
-        info_point_set: local+global feature (num_fiber, 4, num_points, fiber_level_k) """
+        """x: (num_fiber, 3, num_points)
+           info_point_set: local+global feature (num_fiber, 4, num_points, fiber_level_k)
+        """
         num_fiber = x.size(0)
+        num_points = x.size(2)
+
+        # Apply fixed attention map
+        # attention_map = self.create_fixed_attention_map(num_fiber, num_points)
         
-        if self.mark_endpoints:
-            # Apply endpoint marking before the first convolution
-            x = add_endpoint_marker(x)
+        # Use attention map to reweight the input features
+        # if self.marking:
+        #     x = x * attention_map
 
         if self.fiber_level_k + self.fiber_level_k_global == 0:
             # Only use neighbor points for each streamline (process each streamline individually), no local+global info
@@ -119,8 +128,7 @@ class tract_DGCNN_cls(nn.Module):
             # Input local+global info for each streamline
             x = x[:, :, :, None].repeat(1, 1, 1, self.fiber_level_k + self.fiber_level_k_global)  # (num_fiber, 4, num_points) -> (num_fiber, 4, num_points, fiber_k)
             x = torch.cat((info_point_set - x, x), dim=1)  # (num_fiber, 8, num_points, fiber_k)
-        # import pdb
-        # pdb.set_trace()
+
         x = self.conv1(x)  # (num_fiber, 8, num_points, fiber_k) -> (num_fiber, 64, num_points, fiber_k)
         x1 = x.max(dim=-1, keepdim=False)[0]  # (num_fiber, 64, num_points, fiber_k) -> (num_fiber, 64, num_points)
 

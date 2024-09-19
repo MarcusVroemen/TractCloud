@@ -106,4 +106,4 @@ tractography/txt_files/
 tractography/UKB_paper_scripts/
 plots/
 
-.csv
+*.csv

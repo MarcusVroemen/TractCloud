@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # data_dir=$1
-data_dir=/media/volume/HCP_diffusion_MV/data
+data_dir=/media/volume/HCP_diffusion_MV/retest
 output_file="subjects_tractography_output.txt"
 
 # Clear the output file if it exists
@@ -47,7 +47,7 @@ for subject_dir in ${data_dir}/* ; do
         [ -f "${output_dir}/streamlines.vtk" ] && ((streamlines_vtk_count++))
         [ -f "${output_dir}/labels_aparc+aseg.txt" ] && ((labels_txt1_count++))
         [ -f "${output_dir}/labels_aparc.a2009s+aseg.txt" ] && ((labels_txt2_count++))
-        [ -f "${output_dir}/connectome_matrix.png" ] && ((connectome_matrix_png_count++))
+        [ -f "${output_dir}/connectome_matrix_aparc+aseg.csv" ] && ((connectome_matrix_png_count++))
         [ -f "${output_dir}/labels_encoded.txt" ] && ((labels_encoded_txt_count++))
 
         if [ -f "${output_dir}/streamlines.vtk" ] && [ -f "${output_dir}/labels.txt" ]; then
@@ -58,6 +58,14 @@ for subject_dir in ${data_dir}/* ; do
             # python label_encoder.py encode default "${output_dir}/labels.txt" "${output_dir}/labels_encoded_default.txt"
             # python label_encoder.py encode symmetric "${output_dir}/labels.txt" "${output_dir}/labels_encoded_symmetric.txt"
         fi
+
+    #     if ! test -f "${output_dir}/streamlines.vtk"; then
+    #         rm -rf ${output_dir}
+    #     fi
+    # else
+    #     echo "no output ir for ${subject_dir}"
+    #     rm ${anat_dir}/*.mif
+    #     rm ${dmri_dir}/*.mif
     fi
     
     if [ -d "${anat_dir}" ]; then
@@ -82,9 +90,9 @@ echo "Subjects with dMRI folder: $subjects_with_dmri"
 echo "Subjects with output folder: $subjects_with_output"
 echo " "
 echo "Subjects with streamlines.vtk: $streamlines_vtk_count"
-echo "Subjects with labels.txt: $labels_txt1_count"
-echo "Subjects with labels.txt: $labels_txt2_count"
-echo "Subjects with connectome_matrix.png: $connectome_matrix_png_count"
+echo "Subjects with labels_aparc+aseg.txt: $labels_txt1_count"
+echo "Subjects with labels_aparc.a2009s+aseg.txt: $labels_txt2_count"
+echo "Subjects with connectome.csv: $connectome_matrix_png_count"
 echo " "
 echo " "
 echo "Subjects with labels_encoded.txt: $labels_encoded_txt_count"

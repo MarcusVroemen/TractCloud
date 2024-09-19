@@ -4,9 +4,11 @@
 # in preparation for running MRtrix tractography
 
 # Define the directory where the HCP data is downloaded
-HCP_download_dir="HCP"
+# HCP_download_dir="HCP"
+HCP_download_dir="/media/volume/HCP_diffusion_MV/data_retest"
 
-destination_dir="data"
+# destination_dir="data"
+destination_dir="/media/volume/HCP_diffusion_MV/retest"
 
 # Remove all the .md5 files
 rm ${HCP_download_dir}/*md5

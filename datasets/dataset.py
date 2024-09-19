@@ -15,6 +15,7 @@ import utils.tract_feat as tract_feat
 from utils.funcs import obtain_TractClusterMapping, cluster2tract_label,\
     get_rot_axi, array2vtkPolyData, makepath
 from utils.fiber_distance import MDF_distance_calculation, MDF_distance_calculation_endpoints   
+from tractography.label_encoder import *
 
 class RealData_PatchData(data.Dataset):
     def __init__(self, feat, k, k_global, cal_equiv_dist=False, use_endpoints_dist=False, 
@@ -144,10 +145,10 @@ class unrelatedHCP_PatchData(data.Dataset):
     def _adjust_labels(self):
         """Change labels: unknown to zero and/or rare labels to 0"""
         # Set unknown labels to 0 (0,0; 0,1; 0,2 etc)
-        if self.threshold<0:
-            # self.labels = [0 if isinstance(x, int) and 0 <= x < self.num_labels[self.atlas] else x for x in self.labels]
-            self.labels = np.where(np.isin(self.labels, list(range(self.num_labels[self.atlas]))), 0, self.labels)
-            print(self.labels[:20])
+        # if self.threshold<0:
+        #     # self.labels = [0 if isinstance(x, int) and 0 <= x < self.num_labels[self.atlas] else x for x in self.labels]
+        #     self.labels = np.where(np.isin(self.labels, list(range(self.num_labels[self.atlas]))), 0, self.labels)
+        #     print(self.labels[:20])
         if abs(self.threshold)==50: # Connections present in less than 50% of subjects are filtered out, set to 0
             rare_labels = np.loadtxt(f'/media/volume/HCP_diffusion_MV/TrainData_MRtrix_100_symmetric_D0/rare_labels_{abs(self.threshold)}%_{self.atlas}.txt', dtype=int)
             self.labels = np.where(np.isin(self.labels, list(rare_labels)), 0, self.labels)
@@ -164,6 +165,11 @@ class unrelatedHCP_PatchData(data.Dataset):
             else:
                 rare_labels = np.loadtxt(f'/media/volume/HCP_diffusion_MV/TrainData_MRtrix_100_symmetric_D0/rare_labels_{self.threshold}_{self.atlas}.txt', dtype=int)
                 self.labels = np.where(np.isin(self.labels, list(rare_labels)), 0, self.labels)
+        elif self.threshold==-2:
+            label_dict = generate_label_dict(num_labels=self.num_labels[self.atlas], method='symmetric')
+            for i in range(self.num_labels[self.atlas]):
+                diagonal_label = label_dict[(i, i)]
+                self.labels = np.where(self.labels ==diagonal_label, 0, self.labels)
             
 
     def _select_relevant_data(self):

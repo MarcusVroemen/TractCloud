@@ -15,7 +15,7 @@ from utils.cli import load_args_in_testing_only
 from train import load_model, train_val_test_forward
 from datasets.dataset import RealData_PatchData, center_tractography
 import utils.tract_feat as tract_feat
-from tractography.label_encoder import generate_label_dict 
+from tractography.label_encoder import * 
 from utils.metrics_connectome import *
 
 
@@ -64,9 +64,10 @@ parser.add_argument('--cal_equiv_dist', default=False, action='store_true', help
 parser.add_argument('--k_ds_rate', type=float, default=0.1, help='downsample the tractography when calculating pairwise distance matrix')
 
 parser.add_argument('--connectome', default=False, action='store_true', help='Testing on data returns connectomes and metrics')
-parser.add_argument('--atlas', type=str, default='org (800clusters+800outliers)', help='Atlas used')
+parser.add_argument('--atlas', type=str, default='aparc+aseg', help='Atlas used')
 parser.add_argument('--class_weighting', type=float, default=0, help='Class weights, 0 is no weights, scales quadratically')
 parser.add_argument('--encoding', type=str, default='default', help='Method of encoding 2D connectome labels')
+parser.add_argument('--fibersampling', type=float, default=0, help='Distance in fiber sampling, higher means points higher distribution near ends')
     
 
 args = parser.parse_args()
@@ -88,7 +89,7 @@ logger = create_logger(log_path)
 logger.info('=' * 55)
 logger.info(args)
 logger.info('=' * 55)
-
+args.atlas='aparc+aseg'
 # label names
 if not args.connectome:
     ordered_tract_cluster_mapping_dict = obtain_TractClusterMapping()
@@ -100,33 +101,41 @@ else:
         label_names_str.append(str(label[0]) + '_' + str(label[1]))
 
 # read tractography into feature
+time_start_read = time.time()
 pd_tractography = wma.io.read_polydata(args.tractography_path)
-logger.info('Finish reading tractography from: {}'.format(args.tractography_path))
+logger.info('Finish reading tractography from: {}, took {} s'.format(args.tractography_path, time.time()-time_start_read))
 tractography_file_n = os.path.basename(os.path.normpath(args.tractography_path))
 
 # load non-registered feature 
+time_start_load = time.time()
 logger.info('Extracting feature from unregistered tractography'.format(args.tractography_path))
-feat_RAS, _ = tract_feat.feat_RAS(pd_tractography, number_of_points=args.num_points)
+feat_RAS, _ = tract_feat.feat_RAS(pd_tractography, number_of_points=args.num_points, decay_factor=args.fibersampling)
 logger.info('The number of fibers in test tractography is {}'.format(feat_RAS.shape[0]))
-logger.info('Extracting RAS features is done')
+logger.info('Extracting RAS features is done, took {} s'.format(time.time()-time_start_load))
 
 # re-center tractography
-save_recentered_data = False
-centered_feat_RAS = center_tractography(args.input_path,feat_RAS,args.out_path, #!!!!!!!!!
-                                        logger,tractography_file_n,save_recentered_data)
-logger.info('re-centering tractography is done.')
-    
+# time_start_recenter = time.time()
+# save_recentered_data = False
+# centered_feat_RAS = center_tractography(args.input_path,feat_RAS,args.out_path,
+#                                         logger,tractography_file_n,save_recentered_data)
+# logger.info('re-centering tractography is done, took {} s'.format(time.time()-time_start_recenter))
+centered_feat_RAS=feat_RAS
+
 # Real data processing
+time_start_processing = time.time()
 test_realdata = RealData_PatchData(centered_feat_RAS, k=args.k, k_global=args.k_global, cal_equiv_dist=args.cal_equiv_dist, 
                                     use_endpoints_dist=False, rough_num_fiber_each_iter=args.num_fiber_per_brain, k_ds_rate=args.k_ds_rate) 
 test_loader = torch.utils.data.DataLoader(test_realdata, batch_size=args.test_realdata_batch_size, shuffle=False)
 test_realdata_global_feat = test_realdata.global_feat
 test_realdata_size = len(test_realdata)
-logger.info('calculating knn+random features is done')
+logger.info('calculating knn+random features is done, took {} s'.format(time.time()-time_start_processing))
 
 # test network
+time_start_model = time.time()
 DL_model = load_model(args, num_classes=args.num_classes, device=device, test=True)  
 _, pred_labels = test_realdata_DL_net(DL_model)
+logger.info('Inference time is {}s'.format(time.time()-time_start_model))
+
 
 if not args.connectome:
     tract_pred_labels = cluster2tract_label(pred_labels, ordered_tract_cluster_mapping_dict)
@@ -134,27 +143,34 @@ if not args.connectome:
     # save parcellated vtp results
     tractography_parcellation(args, pd_tractography, tract_pred_labels, tract_label_names_str)  # pd tractography here is in the subject space.
 else:
-    # tractography_parcellation(args, pd_tractography, pred_labels, label_names_str)  # pd tractography here is in the subject space.
     # Save predictions
+    time_start_write = time.time()
+    # tractography_parcellation(args, pd_tractography, pred_labels, label_names_str)  # pd tractography here is in the subject space.
+    # logger.info('Time to write vtks is {}s'.format(time.time()-time_start_write))
+    
+    time_start_metrics = time.time()
     connectome_path = os.path.join(args.out_path, 'connectome')
     makepath(connectome_path)
     pred_labels_decoded = convert_labels_list(pred_labels, encoding_type=args.encoding, 
                                                 mode='decode', num_labels=85)
     # Write prediction files
-    with open(os.path.join(connectome_path, f'predictions.txt'), 'w') as file:
+    with open(os.path.join(connectome_path, f'predictions_{args.atlas}.txt'), 'w') as file:
         for prediction in pred_labels_decoded:
             file.write(f'{prediction}\n')
-    with open(os.path.join(connectome_path, f'predictions_encoded_{args.encoding}.txt'), 'w') as file:
+    with open(os.path.join(connectome_path, f'predictions_{args.atlas}_{args.encoding}.txt'), 'w') as file:
         for prediction in pred_labels:
             file.write(f'{prediction}\n')
     
     # Read true files
-    with open(os.path.join(os.path.dirname(args.tractography_path), f'labels_encoded_{args.encoding}.txt'), 'r') as file:
+    encode_labels_txt(s.path.join(os.path.dirname(args.tractography_path), f"labels_{args.atlas}.txt"), 
+                      os.path.join(os.path.dirname(args.tractography_path), f"labels_{args.atlas}_{args.encoding}.txt"), 'symmetric', num_labels=85)
+    with open(os.path.join(os.path.dirname(args.tractography_path), f"labels_{args.atlas}_{args.encoding}.txt"), 'r') as file:
         true_labels = [int(line) for line in file]
     
     # Plot connectomes, and compute metrics
     CM = ConnectomeMetrics(true_labels=true_labels, pred_labels=pred_labels, encoding='symmetric', out_path=connectome_path)
     logger.info(CM.format_metrics())
+    logger.info('Time to compute metrics and plot connectomes {}s'.format(time.time()-time_start_metrics))
 
 # time
 end_time = time.time()

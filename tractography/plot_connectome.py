@@ -61,6 +61,9 @@ def plot_connectome(csv_file, output_file, name, zero_diagonal=False, log_scale=
     plt.title(name)
     plt.xlabel('node')
     plt.ylabel('node')
+    num_nodes=connectome_matrix.shape[0]
+    plt.xticks(ticks=np.arange(9, num_nodes, 10), labels=np.arange(10, num_nodes, 10))
+    plt.yticks(ticks=np.arange(9, num_nodes, 10), labels=np.arange(10, num_nodes, 10))
     
     # Save the plot as an image file
     plt.savefig(output_file, bbox_inches='tight', dpi=500)

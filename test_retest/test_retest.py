@@ -4,6 +4,9 @@ from network_measures import compute_graph_measures
 import pandas as pd
 from scipy.stats import f
 from sklearn.utils import resample
+from scipy.stats import pearsonr, spearmanr
+from scipy.optimize import linear_sum_assignment  # For Hungarian algorithm
+
 # Define the paths to the directories
 base_dirs = ['/media/volume/HCP_diffusion_MV/retest', '/media/volume/HCP_diffusion_MV/test']
 
@@ -88,11 +91,13 @@ def process_connectomes(connectome_data):
         
         # Compute metrics for both true and predicted connectomes
         for connectome_type, connectome in zip(['true', 'pred'], [entry['true_data'], entry['pred_data']]):
-            metrics = compute_graph_measures(connectome)
+            # metrics = compute_graph_measures(connectome)
+            metrics = {}
             metrics.update({
                 'subject_id': subject_id,
                 'dataset_type': dataset_type,
-                'connectome_type': connectome_type
+                'connectome_type': connectome_type,
+                'connectome': connectome
             })
             metrics_list.append(metrics)
             print(subject_id, dataset_type, connectome_type)
@@ -250,28 +255,28 @@ def test_retest_analysis(metrics_df, metrics):
             retest_data[np.isnan(retest_data)] = np.nanmean(retest_data)
 
             # Mean and standard deviation
-            temp_data[f'{data_type} test mean±std'] = f"{round(np.nanmean(test_data),2)}±{round(np.nanstd(test_data),2)}"
-            temp_data[f'{data_type} retest mean±std'] = f"{round(np.nanmean(retest_data),2)}±{round(np.nanstd(retest_data),2)}"
+            temp_data[f'{data_type} test mean±std'] = f"{np.nanmean(test_data):1.3f}±{np.nanstd(test_data):1.4f}"
+            temp_data[f'{data_type} retest mean±std'] = f"{np.nanmean(retest_data):1.3f}±{np.nanstd(retest_data):1.4f}"
             # temp_data[f'{data_type} test mean±std'] = f"{np.format_float_scientific(np.mean(test_data), precision=2)}±{np.format_float_scientific(np.std(test_data), precision=2)}"
             # temp_data[f'{data_type} retest mean±std'] = f"{np.format_float_scientific(np.mean(retest_data), precision=2)}±{np.format_float_scientific(np.std(retest_data), precision=2)}"
             
             # Intraclass correlation coeffient (ICC) and p-value
             icc, p_value = compute_icc(test_data, retest_data)
-            temp_data[f'{data_type} ICC'] = round(icc, 3)
-            temp_data[f'{data_type} ICC p value'] = round(p_value, 3)
+            temp_data[f'{data_type} ICC'] = f"{icc:1.3f}"
+            temp_data[f'{data_type} ICC p value'] = f"{p_value:1.4f}"
             
             # Coefficient of variation (CV%) percentage
             cv_percentage = compute_cv_percentage(test_data, retest_data)
-            temp_data[f'{data_type} CV%'] = round(cv_percentage, 3)
+            temp_data[f'{data_type} CV%'] = f"{cv_percentage:1.4f}"
         
             # Within-subject (WS) and between-subject (BS) percentage differences
             delta_ws, delta_bs = compute_within_between_subject_differences(test_data, retest_data)
-            temp_data[f'{data_type} delta_ws %'] = round(delta_ws, 3)
-            temp_data[f'{data_type} delta_bs %'] = round(delta_bs, 3)
+            temp_data[f'{data_type} delta_ws %'] = f"{delta_ws:1.2f}"
+            temp_data[f'{data_type} delta_bs %'] = f"{delta_bs:1.2f}"
             
             # Bootstrap p-value for between-subject differences
             p_value_bootstrap = percentile_bootstrap(test_data, retest_data)
-            temp_data[f'{data_type} BS p value %'] = round(p_value_bootstrap, 3)
+            temp_data[f'{data_type} BS p value %'] = f"{p_value_bootstrap:1.4f}"
 
         results.append(temp_data)
     
@@ -289,7 +294,103 @@ metrics = [
 
 # Compute ICC and p-values for all metrics
 results_test_retest = test_retest_analysis(metrics_df, metrics)
-
-# Print ICC results
 print(results_test_retest)
 results_test_retest.to_csv('results_test_retest.csv')
+
+
+# Correlation computation
+def compute_pearson_correlation(connectome1, connectome2):
+    triu_indices = np.triu_indices_from(connectome1, k=0)  # Use the upper triangle of the connectomes
+    vec1 = connectome1[triu_indices]
+    vec2 = connectome2[triu_indices]
+    return pearsonr(vec1, vec2)
+
+# Mean Squared Error computation
+def compute_mse(connectome1, connectome2):
+    return np.mean((connectome1 - connectome2) ** 2)
+
+# Matching Accuracy computation
+def compute_matching_accuracy(connectome1, connectome2):
+    cost_matrix = np.zeros((connectome1.shape[0], connectome2.shape[0]))
+    
+    # Fill the cost matrix based on Euclidean distances between connectivity patterns
+    for i in range(connectome1.shape[0]):
+        for j in range(connectome2.shape[0]):
+            cost_matrix[i, j] = np.linalg.norm(connectome1[i] - connectome2[j])
+    
+    # Solve the assignment problem using the Hungarian algorithm
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+    
+    # Matching accuracy: percentage of nodes correctly matched
+    correct_matches = sum(row_ind == col_ind)
+    total_nodes = connectome1.shape[0]
+    
+    return (correct_matches / total_nodes) * 100
+
+def correlation(metrics_df):
+    """
+    """
+    results = []
+
+    for data_type in ['true', 'pred']:
+        temp_data = {'data_type': data_type}
+        
+        # Filter data for true and pred, and separate test and retest
+        df_filtered = metrics_df[metrics_df['connectome_type'] == data_type]
+        test_data = df_filtered[df_filtered['dataset_type'] == 'test']['connectome'].values
+        retest_data = df_filtered[df_filtered['dataset_type'] == 'retest']['connectome'].values
+        
+        BS_R_test, BS_R_retest, WS_R = [], [], []
+        BS_MSE_test, BS_MSE_retest, WS_MSE = [], [], []
+        BS_MA_test, BS_MA_retest, WS_MA = [], [], []
+        
+        for i in range(len(test_data)):
+            for j in range(len(test_data)):
+                
+                if i != j:
+                    r_test, _ = compute_pearson_correlation(test_data[i], test_data[j])
+                    BS_R_test.append(r_test)
+                    r_retest, _ = compute_pearson_correlation(retest_data[i], retest_data[j])
+                    BS_R_retest.append(r_retest)
+                    
+                    mse_test = compute_mse(test_data[i], test_data[j])
+                    BS_MSE_test.append(mse_test)
+                    mse_retest = compute_mse(retest_data[i], retest_data[j])
+                    BS_MSE_retest.append(mse_retest)
+                    
+                    ma_test = compute_matching_accuracy(test_data[i], test_data[j])
+                    BS_MA_test.append(ma_test)
+                    ma_retest = compute_matching_accuracy(retest_data[i], retest_data[j])
+                    BS_MA_retest.append(ma_retest)
+                else:
+                    r, _ = compute_pearson_correlation(test_data[i], retest_data[j])
+                    WS_R.append(r)
+                    
+                    mse = compute_mse(test_data[i], retest_data[j])
+                    WS_MSE.append(mse)
+                    
+                    ma = compute_matching_accuracy(test_data[i], retest_data[j])
+                    WS_MA.append(ma)
+        
+        # Store results for this data type
+        temp_data[f'BS r value (test)'] = f"{np.mean(BS_R_test):1.3f}±{np.std(BS_R_test):1.4f}"
+        temp_data[f'BS r value (retest)'] = f"{np.mean(BS_R_retest):1.3f}±{np.std(BS_R_retest):1.4f}"
+        temp_data[f'WS r value'] = f"{np.mean(WS_R):1.3f}±{np.std(WS_R):1.4f}"
+        
+        temp_data[f'BS mse (test) *1e6'] = f"{np.mean(BS_MSE_test)/1e6:1.3f}±{np.std(BS_MSE_test)/1e6:1.4f}"
+        temp_data[f'BS mse (retest) *1e6'] = f"{np.mean(BS_MSE_retest)/1e6:1.3f}±{np.std(BS_MSE_retest)/1e6:1.4f}"
+        temp_data[f'WS mse *1e6'] = f"{np.mean(WS_MSE)/1e6:1.3f}±{np.std(WS_MSE)/1e6:1.4f}"
+
+        temp_data[f'BS ma (test) %'] = f"{np.mean(BS_MA_test):1.3f}±{np.std(BS_MA_test):1.4f}"
+        temp_data[f'BS ma (retest) %'] = f"{np.mean(BS_MA_retest):1.3f}±{np.std(BS_MA_retest):1.4f}"
+        temp_data[f'WS ma %'] = f"{np.mean(WS_MA):1.3f}±{np.std(WS_MA):1.4f}"
+
+        results.append(temp_data)
+    
+    df = pd.DataFrame(results)
+    return df
+
+
+# correlation_test_retest = correlation(metrics_df)
+# print(correlation_test_retest)
+# correlation_test_retest.to_csv('correlation_test_retest.csv')

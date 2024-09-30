@@ -8,10 +8,10 @@ GREEN='\033[0;32m'
 NC='\033[0m'
 
 subject_id=$1 # e.g. 100206 or 'all' to process all subjects
-streamlines=10M # e.g. 10M to set streamline seeds
 data_dir=$2 # folder that contains the subjects
 
-threading="-nthreads 124" # Set the max number of threads process can use (e.g. number of cores)
+streamlines=10M # e.g. 10M to set streamline seeds
+threading="-nthreads 64" # Set the max number of threads process can use (e.g. number of cores)
 
 process_subject() {
     local subject_id=$1
@@ -72,6 +72,7 @@ process_subject() {
     #################################################################
     ############# CONSTRAINED SPHERICAL DECONVOLUTION ###############
     #################################################################
+    start_time_csp=$(date +%s)
 
     # Estimate the response function using the dhollander method (~4min)
     wm_txt="${dmri_dir}/wm.txt"
@@ -121,9 +122,16 @@ process_subject() {
         mrconvert ${threading} -info -coord 3 0 "${wm_fod_norm}" - | mrcat "${csf_fod_norm}" "${gm_fod_norm}" - "${vf_mif}" 2>&1 | tee -a "${log_file}"
     fi
 
+
+    end_time_csp=$(date +%s)  # End time
+    elapsed_time_csp=$((end_time_csp - start_time_csp))
+    
+
     #################################################################
     ################### CREATING TISSUE BOUNDARY ####################
     #################################################################
+    start_time_tb=$(date +%s)
+
 
     # Create a mask of white matter gray matter interface using 5 tissue type segmentation (~70sec)
     T1_brain_nii="${anat_dir}/T1w_acpc_dc_restore_brain.nii.gz"
@@ -162,11 +170,11 @@ process_subject() {
         echo -e "${GREEN}[INFO]${NC} `date`: Running 5ttgen to get gray matter white matter interface mask" | tee -a "${log_file}"
         # First create the 5tt image
         # Option 1: generate the 5TT image based on a FreeSurfer parcellation image
-        # 5ttgen freesurfer "${parcellation}" "${seg_5tt_T1}" -nocrop ${threading} -info  
+        # 5ttgen freesurfer "${parcellation}" "${seg_5tt_T1}" -nocrop ${threading} -info 2>&1 | tee -a "${log_file}"
         
         # Option 2: generate the 5TT image based on a T1 image with FSL
-        # 5ttgen fsl "${T1_brain_nii}" "${seg_5tt_T1}" -premasked ${threading} -info
         5ttgen fsl ${threading} "${T1_brain}" "${seg_5tt_T1}" -premasked -info 2>&1 | tee -a "${log_file}"
+        # 5ttgen fsl "${T1_brain_nii}" "${seg_5tt_T1}" -premasked ${threading} -info
         # 5ttgen fsl "${T1_nii}" "${seg_5tt_T1}" ${threading} -nocrop -info  
         # 5ttgen fsl "${T1}" "${seg_5tt_T1}" ${threading} -nocrop ${threading} -info  
 
@@ -192,9 +200,15 @@ process_subject() {
         # mrview dwi_meanbzero.mif -overlay.load seg_5tt.mif -overlay.colourmap 2 -overlay.load seg_5tt_T1.mif -overlay.colourmap 1
     fi
 
+    end_time_tb=$(date +%s)  # End time
+    elapsed_time_tb=$((end_time_tb - start_time_tb))
+
+
+
     #################################################################
     ########################## STREAMLINES ##########################
     #################################################################
+    start_time_tractography=$(date +%s)
 
     # Create streamlines
     tracts="${dmri_dir}/tracts_${streamlines}.tck"
@@ -206,9 +220,32 @@ process_subject() {
                             -maxlength 250 -cutoff 0.1 ${threading} "${wm_fod_norm}" "${tracts}" -power 0.5 \
                             -info -samples 3 -select 0  2>&1 | tee -a "${log_file}" #-output_stats "${tractstats}"
         # Visualize result
-        # tckedit tracts_10M.tck -number 200k smallertracts_200k.tck
+        # tckedit "${tracts}" -number 200k "${dmri_dir}/tracts_200k.tck"
         # mrview dwi_meanbzero.mif -tractography.load smallertracts_200k.tck
+        # mrview anat/T1w_acpc_dc_restore_brain.nii.gz -tractography.load dMRI/tracts_200k.tck
+        # mrview 103818/anat/T1w_acpc_dc_restore_brain.nii.gz -tractography.load 103818/dMRI/tracts_200k.tck
     fi
+
+    tracts_MNI="${dmri_dir}/tracts_${streamlines}_MNI.tck"
+    if [ ! -f ${tracts_MNI} ]; then
+        # Prepare deformation field file
+        mrconvert ${anat_dir}/standard2acpc_dc.nii.gz ${dmri_dir}/tmp-[].nii -force
+        mv ${dmri_dir}/tmp-0.nii ${dmri_dir}/x.nii
+        mrcalc ${dmri_dir}/x.nii -neg ${dmri_dir}/tmp-0.nii -force
+        warpconvert ${dmri_dir}/tmp-[].nii displacement2deformation ${dmri_dir}/acpc2MNI_mrtrix.nii.gz -force
+        rm ${dmri_dir}/x.nii ${dmri_dir}/tmp-?.nii
+
+        # Transform tracts to MNI space
+        tcktransform "${tracts}" \
+                    "${dmri_dir}/acpc2MNI_mrtrix.nii.gz" \
+                    "${tracts_MNI}"
+        # Generate subsample for visualization
+        # tckedit "${tracts_MNI}" -number 200k "${dmri_dir}/tracts_200k_MNI.tck"
+        # mrview anat/T1w_restore_brain.nii.gz -tractography.load dMRI/tracts_200k_MNI.tck
+    fi
+
+    end_time_tractography=$(date +%s)  # End time
+    elapsed_time_tractography=$((end_time_tractography - start_time_tractography))
 
     #################################################################
     ################## MAP STRUCTURAL CONNECTIVITY ##################
@@ -216,8 +253,13 @@ process_subject() {
 
     # Write tracts to vtk file
     tracts_vtk=${output_dir}/streamlines.vtk
+    rm ${tracts_vtk}
     if [ ! -f ${tracts_vtk} ]; then
-        tckconvert ${tracts} ${tracts_vtk} 2>&1 | tee -a "${log_file}"
+        tckconvert -binary ${tracts} ${tracts_vtk} 2>&1 | tee -a "${log_file}" # might give error as -binary became an option in rtrix 3.0.4 (download with conda install -c mrtrix3 mrtrix3)
+    fi
+    tracts_vtk_MNI=${output_dir}/streamlines_MNI.vtk
+    if [ ! -f ${tracts_vtk_MNI} ]; then
+        tckconvert -binary ${tracts_MNI} ${tracts_vtk_MNI} 2>&1 | tee -a "${log_file}" 
     fi
 
     # Define both parcellations
@@ -231,6 +273,9 @@ process_subject() {
         parcellation="${anat_dir}/${parc}.mif"
         parcellation_converted="${anat_dir}/${parc}_mrtrix.mif"
         connectome_matrix="${output_dir}/connectome_matrix_${parc}.csv"
+
+        # rm ${parcellation}
+        # rm ${parcellation_converted}
 
         # Convert parcellation image to mif if not already converted
         if [ ! -f ${parcellation} ]; then
@@ -273,7 +318,11 @@ process_subject() {
     
     end_time=$(date +%s)  # End time
     elapsed_time=$((end_time - start_time))
+
     echo ""
+    echo -e "${GREEN}[INFO]${NC} `date`: Constrained Spherical Deconvolution took: ${elapsed_time_csp} seconds." | tee -a "${log_file}"
+    echo -e "${GREEN}[INFO]${NC} `date`: Generating tissue boundary took: ${elapsed_time_tb} seconds." | tee -a "${log_file}"
+    echo -e "${GREEN}[INFO]${NC} `date`: Tractography took: ${elapsed_time_tractography} seconds." | tee -a "${log_file}"
     echo -e "${GREEN}[INFO]${NC} `date`: Finished processing ${subject_id}. Total time: ${elapsed_time} seconds." | tee -a "${log_file}"
 
     # Call the Python script to clean the log file
@@ -282,8 +331,8 @@ process_subject() {
 }
 
 if [ "$subject_id" = "all" ]; then
-    # for subject_dir in "${data_dir}"/*/ ; do
-    for subject_dir in $(ls -d "${data_dir}"/*/ | tac); do
+    for subject_dir in "${data_dir}"/*/ ; do
+    # for subject_dir in $(ls -d "${data_dir}"/*/ | tac); do
         real_subject_id=$(basename "${subject_dir}")
         (
             process_subject "${real_subject_id}" "${streamlines}" "${data_dir}"

@@ -31,7 +31,7 @@ def read_labels(labels_path):
 def encode_labels(subject_id, data_dir, encoding_type='default'):
     """Encode labels using a custom encoding method."""
     output_dir = os.path.join(data_dir, subject_id, "output")
-    labels_path = os.path.join(output_dir, "labels_aparc+aseg.txt")
+    labels_path = os.path.join(output_dir, "labels_100K_aparc+aseg.txt")
     encoded_labels_path = os.path.join(output_dir, f"labels_encoded_{encoding_type}.txt")
 
     # Encode labels using your label_encoder.py
@@ -68,15 +68,14 @@ def process_subject(subject_index, subject_id, data_dir, encoding_type):
     print(f"Reading subject {subject_id}")
     output_dir = os.path.join(data_dir, subject_id, "output")
     encoded_labels_path = encode_labels(subject_id, data_dir, encoding_type)
-    
-    tractography_path = os.path.join(output_dir, "streamlines.vtk")
+    tractography_path = os.path.join(output_dir, STREAMLINE_FILE)
     streamlines, _ = read_tractography(tractography_path)
     
     labels = np.loadtxt(encoded_labels_path, dtype=int)
     # subject_ids = np.full(labels.shape, subject_id, dtype=int) # use this if you want to work with indexes instead of the HCP ids
 
     # Apply the filter to remove fibers with less than `min_fibers` labels
-    labels, streamlines = threshold(labels, streamlines, MIN_FIBERS)
+    # labels, streamlines = threshold(labels, streamlines, MIN_FIBERS)
 
     subject_ids = np.full(labels.shape, subject_index, dtype=int)
     
@@ -207,8 +206,8 @@ def save_data(features, labels, label_names, subject_ids, start_idx, output_dir,
     }
     
     metadata_path = os.path.join(output_dir, 'metadata.pickle')
-    update_metadata(features, labels, subject_ids, metadata_path, subject_ids_split, total_labels)
-
+    # update_metadata(features, labels, subject_ids, metadata_path, subject_ids_split, total_labels)
+# 
     print(f"Chunk {start_idx+1} successfully saved to {output_dir}")
 
 def update_metadata(features, labels, subject_ids, metadata_path, subject_ids_split, total_labels):
@@ -278,16 +277,16 @@ def update_metadata(features, labels, subject_ids, metadata_path, subject_ids_sp
     return average_fibers_per_label, std_fibers_per_label
 
 if __name__ == "__main__":
+    STREAMLINE_FILE="streamlines_100K_MNI.vtk"
+    
     encoding = 'symmetric'
     decay_factor = 0
-    data_size=100
-    MIN_FIBERS=100
-    # Data paths
-    data_dir = "/media/volume/HCP_diffusion_MV/data/"
-    output_dir = f"/media/volume/HCP_diffusion_MV/TrainData_MRtrix_{data_size}_{encoding}_D{round(decay_factor)}_T{MIN_FIBERS}/"
-    subjects_with_output_file = os.path.join(data_dir, f"subjects_tractography_output_{data_size}.txt")
+    data_size=1000
+    data_dir = "/media/volume/sdc/HCP_MRtrix"
+    output_dir = f"/media/volume/sdc/TrainData_MRtrix_{data_size}_{encoding}_100K_MNI/" #_D{round(decay_factor)}
+    subjects_with_output_file = os.path.join(data_dir, f"../subjects_tractography_output_{data_size}.txt")
     
-    preprocess_data(data_dir, subjects_with_output_file, output_dir, encoding, chunk_size=100)
+    preprocess_data(data_dir, subjects_with_output_file, output_dir, encoding, chunk_size=125)
 
     # Make plots
     metadata = load_metadata(os.path.join(output_dir, 'metadata.pickle'))

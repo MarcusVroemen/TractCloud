@@ -1,22 +1,21 @@
 #!/bin/bash
 
-# Execute with e.g.: bash tractography.sh all ../../HCP_diffusion_MV/data/
+# Execute with e.g.: bash tractography.sh all ../../HCP_diffusion_MV/data/ 128
 
 # some colors for fancy logging
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m'
 
-subject_id=$1 # e.g. 100206 or 'all' to process all subjects
-data_dir=$2 # folder that contains the subjects
+subject_id=$1  # e.g., 100206 or 'all' to process all subjects
+data_dir=$2    # folder that contains the subjects
+num_jobs=$3    # number of parallel jobs
 
-streamlines=10M # e.g. 10M to set streamline seeds
-threading="-nthreads 64" # Set the max number of threads process can use (e.g. number of cores)
+threading="-nthreads 1" # Set the max number of threads process can use (e.g. number of cores)
 
 process_subject() {
     local subject_id=$1
-    local streamlines=$2
-    local data_dir=$3
+    local data_dir=$2
 
     start_time=$(date +%s)  # Start time
 
@@ -29,7 +28,7 @@ process_subject() {
         mkdir -p "${output_dir}"
     else
         echo -e "${RED}[INFO]${NC} `date`: Skipping ${subject_id}, output directory already exists."
-        # return
+        return
     fi
 
     log_file="${data_dir}/${subject_id}/output/tractography_log.txt"
@@ -209,16 +208,16 @@ process_subject() {
     ########################## STREAMLINES ##########################
     #################################################################
     start_time_tractography=$(date +%s)
-
+    streamlines=100K
     # Create streamlines
     tracts="${dmri_dir}/tracts_${streamlines}.tck"
     tractstats="${dmri_dir}/stats/${subject_id}_tracts_${streamlines}_stats.json"
     mkdir -p "${dmri_dir}/stats"
     if [ ! -f ${tracts} ]; then
         echo -e "${GREEN}[INFO]${NC} `date`: Running probabilistic tractography" | tee -a "${log_file}"
-        tckgen -seed_gmwmi "${gmwm_seed}" -act "${seg_5tt}" -seeds "${streamlines}" \
+        tckgen -seed_gmwmi "${gmwm_seed}" -act "${seg_5tt}" -select "${streamlines}" \
                             -maxlength 250 -cutoff 0.1 ${threading} "${wm_fod_norm}" "${tracts}" -power 0.5 \
-                            -info -samples 3 -select 0  2>&1 | tee -a "${log_file}" #-output_stats "${tractstats}"
+                            -info -samples 3  2>&1 | tee -a "${log_file}" #-output_stats "${tractstats}"
         # Visualize result
         # tckedit "${tracts}" -number 200k "${dmri_dir}/tracts_200k.tck"
         # mrview dwi_meanbzero.mif -tractography.load smallertracts_200k.tck
@@ -252,12 +251,11 @@ process_subject() {
     #################################################################
 
     # Write tracts to vtk file
-    tracts_vtk=${output_dir}/streamlines.vtk
-    rm ${tracts_vtk}
+    tracts_vtk=${output_dir}/streamlines_${streamlines}.vtk
     if [ ! -f ${tracts_vtk} ]; then
         tckconvert -binary ${tracts} ${tracts_vtk} 2>&1 | tee -a "${log_file}" # might give error as -binary became an option in rtrix 3.0.4 (download with conda install -c mrtrix3 mrtrix3)
     fi
-    tracts_vtk_MNI=${output_dir}/streamlines_MNI.vtk
+    tracts_vtk_MNI=${output_dir}/streamlines_${streamlines}_MNI.vtk
     if [ ! -f ${tracts_vtk_MNI} ]; then
         tckconvert -binary ${tracts_MNI} ${tracts_vtk_MNI} 2>&1 | tee -a "${log_file}" 
     fi
@@ -273,9 +271,6 @@ process_subject() {
         parcellation="${anat_dir}/${parc}.mif"
         parcellation_converted="${anat_dir}/${parc}_mrtrix.mif"
         connectome_matrix="${output_dir}/connectome_matrix_${parc}.csv"
-
-        # rm ${parcellation}
-        # rm ${parcellation_converted}
 
         # Convert parcellation image to mif if not already converted
         if [ ! -f ${parcellation} ]; then
@@ -299,7 +294,7 @@ process_subject() {
 
             tck2connectome ${threading} -info -symmetric \
                             "${tracts}" "${parcellation_converted}" "${connectome_matrix}" \
-                            -out_assignments ${output_dir}/labels_${parc}.txt 2>&1 | tee -a "${log_file}"
+                            -out_assignments ${output_dir}/labels_${streamlines}_${parc}.txt 2>&1 | tee -a "${log_file}"
 
             # Record the end time
             end_time=$(date +%s)
@@ -309,7 +304,7 @@ process_subject() {
             echo -e "${GREEN}[INFO]${NC} `date`: tck2connectome completed for ${parc} in ${elapsed_time} seconds" | tee -a "${log_file}"
 
             # Generate the connectome matrix plot
-            python plot_connectome.py "${connectome_matrix}" "${output_dir}/connectome_matrix_${parc}.png" "Connectome matrix subject ${subject_id} (${parc})" 2>&1 | tee -a "${log_file}"
+            python plot_connectome.py "${connectome_matrix}" "${output_dir}/connectome_matrix_${streamlines}_${parc}.png" "Connectome matrix subject ${subject_id} (${parc})" 2>&1 | tee -a "${log_file}"
         fi
 
     done
@@ -330,17 +325,27 @@ process_subject() {
     echo "Log file cleaned!"
 }
 
-if [ "$subject_id" = "all" ]; then
-    for subject_dir in "${data_dir}"/*/ ; do
-    # for subject_dir in $(ls -d "${data_dir}"/*/ | tac); do
-        real_subject_id=$(basename "${subject_dir}")
-        (
-            process_subject "${real_subject_id}" "${streamlines}" "${data_dir}"
-        ) 
-    done
+# if [ "$subject_id" = "all" ]; then
+#     for subject_dir in "${data_dir}"/*/ ; do
+#     # for subject_dir in $(ls -d "${data_dir}"/*/ | tac); do
+#         real_subject_id=$(basename "${subject_dir}")
+#         (
+#             process_subject "${real_subject_id}" "${streamlines}" "${data_dir}"
+#         ) 
+#     done
+# else
+#     process_subject "${subject_id}" "${streamlines}" "${data_dir}"
+# fi
+
+
+export -f process_subject  # Export the function for parallel
+
+if [ "${subject_id}" == "all" ]; then
+    # Get a list of all subjects in the data directory
+    subjects=$(ls "${data_dir}" | grep -E '^[0-9]{6}$')
 else
-    process_subject "${subject_id}" "${streamlines}" "${data_dir}"
+    subjects="${subject_id}"
 fi
 
-
-
+# Run the process_subject function in parallel for each subject
+echo "${subjects}" | parallel -j "${num_jobs}" process_subject {} "${data_dir}"

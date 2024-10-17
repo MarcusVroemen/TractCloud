@@ -102,13 +102,16 @@ def load_batch_data():
     if args.use_tracts_training:
         label_names =  list(ordered_tract_cluster_mapping_dict.keys()) 
     else:
+        #TODO
         assert train_dataset.label_names == val_dataset.label_names
         label_names = train_dataset.label_names
-    label_names_h5 = h5py.File(os.path.join(args.out_path, 'label_names.h5'), 'w')
-    label_names_h5['y_names'] = label_names
+    # label_names_h5 = h5py.File(os.path.join(args.out_path, 'label_names.h5'), 'w')
+    # label_names_h5['y_names'] = label_names
     logger.info('The label names are: {}'.format(str(label_names)))
-    num_classes = len(np.unique(label_names))
-    logger.info('The number of classes is:{}'.format(num_classes))
+    #TODO
+    num_classes = [len(np.unique(label_names[0])), len(np.unique(label_names[1]))]
+    logger.info('The number of classes is:{}'.format(num_classes[0]))
+    logger.info('The number of classes is:{}'.format(num_classes[1]))
 
     # global feature
     train_global_feat = train_dataset.global_feat
@@ -123,7 +126,7 @@ def load_batch_data():
 def load_model(args, num_classes, device, test=False):
     # model setting 
     if args.model_name == 'dgcnn':
-        DL_model = tract_DGCNN_cls(num_classes,args,device)
+        DL_model = tract_DGCNN_cls(num_classes_0=num_classes[0], num_classes_1=num_classes[1], args=args, device=device)
     elif args.model_name == 'pointnet':
         DL_model = PointNetCls(k=args.k, k_global=args.k_global, num_classes=num_classes, feature_transform=False, first_feature_transform=False)
     else:
@@ -158,13 +161,17 @@ def load_settings(DL_model):
     return optimizer, scheduler
 
 
-def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst, predicted_lst, args, device, num_classes, epoch=-1, num_batch=-1,
+def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst_0, predicted_lst_0, labels_lst_1, predicted_lst_1, args, device, num_classes, epoch=-1, num_batch=-1,
                            train_global_feat=None, eval_global_feat=None, samples_per_class=None):
     if state == 'test_realdata':
         points, klocal_feat_set = data
     else:
         # points [B, N_point, 3], label [B,1](cls) or [B,N_point](seg), [B, n_point, 3, k], [B]
         points, label, klocal_feat_set, new_subidx = data 
+        # labels
+        label_0 = label[:,0]  # First task
+        label_1 = label[:,1]  # Second task
+        
     if state == 'train':
         global_feat = torch.from_numpy(train_global_feat)
     elif state == 'val' or state == 'test' or state =='test_realdata':
@@ -172,9 +179,7 @@ def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst, p
         
     num_fiber = points.shape[0]
     num_point_per_fiber = points.shape[1]
-    # label
-    if state != 'test_realdata':
-        label = label[:,0]  # [B,1] to [B]   
+  
     # points
     points = points.transpose(2, 1)  # points [B, 3, N_point]
     # local feat
@@ -209,7 +214,8 @@ def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst, p
     if state == 'test_realdata':
         points, info_point_set = points.to(device), info_point_set.to(device)
     else:
-        points, label, info_point_set = points.to(device), label.to(device), info_point_set.to(device)
+        points, info_point_set = points.to(device), info_point_set.to(device)
+        label_0, label_1 = label_0.to(device), label_1.to(device)
     
     if state == 'train':
         optimizer.zero_grad()
@@ -218,139 +224,130 @@ def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst, p
         net = net.eval() 
     # get desired results for pred -- [B,N_point,Cls] for seg, [B,Cls] for cls
     if args.model_name == 'dgcnn':
-        pred = net(points, info_point_set)   
+        pred_0 = net(points, info_point_set, task_id=0)   
+        pred_1 = net(points, info_point_set, task_id=1)   
     elif args.model_name == 'pointnet':
         pred,_,_=net(points, info_point_set)
     else:
         raise ValueError('Please input valid model name dgcnn | pointnet')       
-    pred = pred.view(-1, num_classes)  # seg (B,N_point,Cls) -> (B*N_point,Cls); cls (B,Cls) -> (B,Cls)
+    
+    # pred_0 = pred_0.view(-1, num_classes_0) # seg (B,N_point,Cls) -> (B*N_point,Cls); cls (B,Cls) -> (B,Cls)
+    # pred_1 = pred_1.view(-1, num_classes_1)
     
     if state != 'test_realdata':
-        label = label.view(-1,1)[:,0] 
+        # label = label.view(-1,1)[:,0]
             
-        if args.class_weighting and state=='train':  # If class_weighting is provided and not None or 0
-            min_samples = int(np.quantile(np.asarray(samples_per_class), 0.25))  # Example threshold for minimum samples per class
-            max_samples = int(np.quantile(np.asarray(samples_per_class), 0.75))  # Example threshold for maximum samples per class
-            max_samples = 10000  # Example threshold for maximum samples per class
-
-            # Clip the number of samples to be within a reasonable range
-            clipped_samples_per_class = torch.clamp(samples_per_class, min=min_samples, max=max_samples)
-
-            # Recalculate the weights using the clipped values
-            # class_weights = ((torch.sum(clipped_samples_per_class) / (num_classes * clipped_samples_per_class))+1) ** args.class_weighting
-            class_weights = ((1-(clipped_samples_per_class/torch.max(clipped_samples_per_class)))+1) ** args.class_weighting # sparse become 2, and populated 1
-            class_weights = class_weights.to(device)
-            nll_loss_fn = torch.nn.NLLLoss(weight=class_weights)
-            
-        else:
-            # Define the loss function without weights
-            nll_loss_fn = torch.nn.NLLLoss()        
+        # Compute loss for both tasks
+        lossfn_0 = torch.nn.NLLLoss()
+        lossfn_1 = torch.nn.NLLLoss()
         
-        loss = nll_loss_fn(pred, label)
-            
+        loss_0 = lossfn_0(pred_0, label_0)
+        loss_1 = lossfn_1(pred_1, label_1)
+        loss = loss_0 + loss_1
+    
     if state == 'train':
         loss.backward()
         optimizer.step()
-        if args.scheduler == 'wucd':
-            scheduler.step(epoch-1 + idx_data/num_batch)
     
-    _, pred_idx = torch.max(pred, dim=1)    # (B*N_point,Cls)->(B*N_point,) for seg, (B,Cls)-> (B) for cls         
-            
-    if state != 'test_realdata':
-        total_loss += loss.item()
-        # for calculating weighted and macro metrics
-        label = label.cpu().detach().numpy()
-        labels_lst.extend(label)
-    pred_idx = pred_idx.cpu().detach().numpy()
-    predicted_lst.extend(pred_idx)
+    _, pred_idx_0 = torch.max(pred_0, dim=1)
+    _, pred_idx_1 = torch.max(pred_1, dim=1)
     
-    return total_loss, labels_lst, predicted_lst
+    total_loss += loss.item()
+    
+    # Append labels and predictions for both tasks
+    labels_lst_0.extend(label_0.cpu().detach().numpy())
+    predicted_lst_0.extend(pred_idx_0.cpu().detach().numpy())
+    
+    labels_lst_1.extend(label_1.cpu().detach().numpy())
+    predicted_lst_1.extend(pred_idx_1.cpu().detach().numpy())
+
+    return total_loss, labels_lst_0, predicted_lst_0, labels_lst_1, predicted_lst_1
     
     
 def train_val_DL_net(net):
-    """train and validation of the network"""
+    """Train and validation loop for the network."""
     time_start = time.time()
     train_num_batch = train_data_size / args.train_batch_size
     val_num_batch = val_data_size / args.val_batch_size
-    # save training and validating process data
-    train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst, \
-    train_precision_lst, val_precision_lst, train_recall_lst, val_recall_lst, \
-    train_f1_lst, val_f1_lst = [], [], [], [], [], [], [], [], [], []
-    # save weights with best metrics
-    if not args.connectome:
-        org_best_f1_mac, tract_best_f1_mac = 0,0   
-        org_best_f1_epoch, tract_best_f1_epoch = 1,1
-        org_best_f1_wts, tract_best_f1_wts = None,None
-        org_best_f1_val_labels_lst, tract_best_f1_val_labels_lst = [],[]
-        org_best_f1_val_pred_lst,tract_best_f1_val_pred_lst = [],[]
-    else:
-        org_best_f1_mac = 0   
-        org_best_f1_epoch = 1
-        org_best_f1_wts = None
-        org_best_f1_val_labels_lst = []
-        org_best_f1_val_pred_lst = []
     
+    # Save training and validation process data
+    metrics = {
+        'train': {'loss': [], 'acc': [], 'precision': [], 'recall': [], 'f1': []},
+        'val': {'loss': [], 'acc': [], 'precision': [], 'recall': [], 'f1': []}
+    }
+
+    # Save weights with best metrics
+    org_best_f1_mac, tract_best_f1_mac = 0, 0
+    org_best_f1_epoch, tract_best_f1_epoch = 1, 1
+    org_best_f1_wts, tract_best_f1_wts = None, None
+    org_best_f1_val_labels_lst, tract_best_f1_val_labels_lst = [], []
+    org_best_f1_val_pred_lst, tract_best_f1_val_pred_lst = [], []
+
     for epoch in range(args.epoch):
         train_start_time = time.time()
         epoch += 1
         total_train_loss, total_val_loss = 0, 0
-        train_labels_lst, train_predicted_lst = [], []
-        val_labels_lst, val_predicted_lst = [], []
-        # trainings
+        train_labels_lst_0, train_predicted_lst_0 = [], []
+        train_labels_lst_1, train_predicted_lst_1 = [], []
+        val_labels_lst_0, val_predicted_lst_0 = [], []
+        val_labels_lst_1, val_predicted_lst_1 = [], []
+        
+        # Training loop
         for i, data in enumerate(train_loader, start=0):
-            total_train_loss, train_labels_lst, train_predicted_lst = \
-                train_val_test_forward(i, data, net, 'train', total_train_loss, train_labels_lst, train_predicted_lst, 
-                                       args, device, num_classes, epoch, train_num_batch, train_global_feat=train_global_feat, samples_per_class=samples_per_class)
-                
+            total_train_loss, train_labels_lst_0, train_predicted_lst_0, train_labels_lst_1, train_predicted_lst_1 = \
+                train_val_test_forward(i, data, net, 'train', total_train_loss, train_labels_lst_0, train_predicted_lst_0, 
+                                       train_labels_lst_1, train_predicted_lst_1, args, device, num_classes, epoch, train_num_batch, 
+                                       train_global_feat=train_global_feat, samples_per_class=samples_per_class)
+
         if args.scheduler == 'step':
             scheduler.step()
+            
         # train metric calculation
         train_end_time = time.time()
         train_time = round(train_end_time-train_start_time, 2)
-        train_loss_lst, train_acc_lst, train_precision_lst, train_recall_lst, train_f1_lst,_,_,_,_,_,_ = \
-            meters(epoch, train_num_batch, total_train_loss, train_labels_lst, train_predicted_lst, 
-                   train_loss_lst, train_acc_lst, train_precision_lst, train_recall_lst, train_f1_lst, train_time, 'train')
+        metrics['train']['loss'], metrics['train']['acc'], metrics['train']['precision'], \
+        metrics['train']['recall'], metrics['train']['f1'] = \
+            meters(epoch, train_num_batch, total_train_loss, train_labels_lst_0, train_predicted_lst_0, 
+                   train_labels_lst_1, train_predicted_lst_1, metrics['train']['loss'], metrics['train']['acc'], 
+                   metrics['train']['precision'], metrics['train']['recall'], metrics['train']['f1'], train_time, 'train')
 
-        # validation
         with torch.no_grad():
             val_start_time = time.time()
             for j, data in enumerate(val_loader, start=0):
-                total_val_loss, val_labels_lst, val_predicted_lst = \
-                    train_val_test_forward(j, data, net, 'val', total_val_loss, val_labels_lst, val_predicted_lst, 
-                                           args, device, num_classes, epoch, eval_global_feat=val_global_feat)
-        
-        # save weights regularly
-        if epoch % args.save_step == 0:
-            torch.save(net.state_dict(), '{}/epoch_{}_model.pth'.format(args.out_path, epoch))
-            print('Save {}/epoch_{}_model.pth'.format(args.out_path, epoch))  
-        
+                total_val_loss, val_labels_lst_0, val_predicted_lst_0, val_labels_lst_1, val_predicted_lst_1 = \
+                    train_val_test_forward(j, data, net, 'val', total_val_loss, val_labels_lst_0, val_predicted_lst_0, 
+                                           val_labels_lst_1, val_predicted_lst_1, args, device, num_classes, epoch, 
+                                           eval_global_feat=val_global_feat)
+
         # validation metric calculation
         val_end_time = time.time()
         val_time = round(val_end_time-val_start_time, 2)
-        val_loss_lst, val_acc_lst, val_precision_lst, val_recall_lst, val_f1_lst, _, org_mac_val_f1, \
-            _, tract_mac_val_f1, tract_labels_lst, tract_pred_lst = \
-            meters(epoch, val_num_batch, total_val_loss, val_labels_lst, val_predicted_lst, 
-                   val_loss_lst, val_acc_lst, val_precision_lst, val_recall_lst, val_f1_lst, val_time, 'val')
-        # swap and save the best metric
-        if org_mac_val_f1 > org_best_f1_mac:
-            org_best_f1_mac, org_best_f1_epoch, org_best_f1_wts, org_best_f1_val_labels_lst, org_best_f1_val_pred_lst = \
-                best_swap(org_mac_val_f1, epoch, net, val_labels_lst, val_predicted_lst)
-        if not args.connectome:
-            if tract_mac_val_f1 > tract_best_f1_mac:
-                tract_best_f1_mac, tract_best_f1_epoch, tract_best_f1_wts, tract_best_f1_val_labels_lst, tract_best_f1_val_pred_lst = \
-                    best_swap(tract_mac_val_f1, epoch, net, tract_labels_lst, tract_pred_lst)
-                
-    # save best weights
-    save_best_weights(net, org_best_f1_wts, args.out_path, 'org_f1', org_best_f1_epoch, org_best_f1_mac, logger)
-    if not args.connectome:
-        save_best_weights(net, tract_best_f1_wts, args.out_path, 'tract_f1', tract_best_f1_epoch, tract_best_f1_mac, logger)
-        
-    # plot process curves
-    process_curves(args.epoch, train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst,
-                   train_precision_lst, val_precision_lst, train_recall_lst, val_recall_lst,
-                    train_f1_lst, val_f1_lst, -1, -1, org_best_f1_mac, org_best_f1_epoch, args.out_path)
+        metrics['val']['loss'], metrics['val']['acc'], metrics['val']['precision'], \
+        metrics['val']['recall'], metrics['val']['f1'] = \
+            meters(epoch, val_num_batch, total_val_loss, val_labels_lst_0, val_predicted_lst_0, 
+                   val_labels_lst_1, val_predicted_lst_1, metrics['val']['loss'], metrics['val']['acc'], 
+                   metrics['val']['precision'], metrics['val']['recall'], metrics['val']['f1'], val_time, 'val')
+            
 
-      
+        # Save weights at regular intervals
+        if epoch % args.save_step == 0:
+            torch.save(net.state_dict(), f'{args.out_path}/epoch_{epoch}_model.pth')
+            print(f'Save {args.out_path}/epoch_{epoch}_model.pth')
+
+
+        # Track the best metrics and swap if necessary
+        if metrics['val']['f1'][-1][0] > org_best_f1_mac:
+            org_best_f1_mac, org_best_f1_epoch, org_best_f1_wts, org_best_f1_val_labels_lst, org_best_f1_val_pred_lst = \
+                best_swap(metrics['val']['f1'][-1][0], epoch, net, [val_labels_lst_0, val_labels_lst_1], [val_predicted_lst_0, val_predicted_lst_1])
+
+    # Save best weights
+    save_best_weights(net, org_best_f1_wts, args.out_path, 'org_f1', org_best_f1_epoch, org_best_f1_mac, logger)
+
+    # Plot performance curves
+    process_curves(args.epoch, metrics['train']['loss'], metrics['val']['loss'], metrics['train']['acc'], metrics['val']['acc'],
+                   metrics['train']['precision'], metrics['val']['precision'], metrics['train']['recall'], metrics['val']['recall'],
+                   metrics['train']['f1'], metrics['val']['f1'], -1, -1, org_best_f1_mac, org_best_f1_epoch, args.out_path)
+
     # remove checkpoints
     saved_steps = list(range(args.save_step, args.epoch+1, args.save_step))[:-1] # save the last epoch
     for epoch in saved_steps:
@@ -363,97 +360,47 @@ def train_val_DL_net(net):
     logger.info('Total processing time is {}s'.format(total_time))
 
 
-def meters(epoch, num_batch, total_loss, labels_lst, predicted_lst, 
-           org_loss_lst, org_acc_lst, org_precision_lst, org_recall_lst, org_f1_lst, run_time, state):
-    # train accuracy loss
+def meters(epoch, num_batch, total_loss, labels_lst_0, predicted_lst_0, labels_lst_1, predicted_lst_1, 
+           loss_lst, acc_lst, precision_lst, recall_lst, f1_lst, run_time, state):
+    """Calculate and log metrics for both label_0 and label_1."""
+    
     avg_loss = total_loss / float(num_batch)
-    org_loss_lst.append(avg_loss)
-    # train macro p, r, f1
-    # original labels 
-    if args.connectome: # Use weighted metrics when predicting conenctomes because of the large class inbalance
-        # average='weighted'
-        # num_labels={"aparc+aseg":85,
-        #             "aparc.a2009s+aseg":165}
-        # labels_to_ignore=list(range(num_labels[args.atlas])) # ignore all labels with 0 (unknown) in the atlas
-        # org_acc, mac_org_precision, mac_org_recall, mac_org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'macro', labels_to_ignore)
-        # org_acc, org_precision, org_recall, org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'weighted', labels_to_ignore)
-        org_acc, org_precision, org_recall, org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'macro')
-        org_acc, w_org_precision, w_org_recall, w_org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'weighted')
-        org_acc_lst.append(org_acc)
-        org_precision_lst.append([org_precision, w_org_precision])
-        org_recall_lst.append([org_recall, w_org_recall])
-        org_f1_lst.append([org_f1, w_org_f1])
-    else:
-        org_acc, org_precision, org_recall, org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'macro')
-        org_acc_lst.append(org_acc)
-        org_precision_lst.append(org_precision)
-        org_recall_lst.append(org_recall)
-        org_f1_lst.append(org_f1)        
+    loss_lst.append(avg_loss)
+    
+    # Calculate metrics for label_0
+    org_acc_0, org_precision_0, org_recall_0, org_f1_0 = calculate_acc_prec_recall_f1(labels_lst_0, predicted_lst_0, 'macro')
+    # _, w_org_precision_0, w_org_recall_0, w_org_f1_0 = calculate_acc_prec_recall_f1(labels_lst_0, predicted_lst_0, 'weighted')
 
-    if not args.connectome:
-        # Tract labels
-        tract_labels_lst = cluster2tract_label(labels_lst, ordered_tract_cluster_mapping_dict)
-        tract_pred_lst = cluster2tract_label(predicted_lst, ordered_tract_cluster_mapping_dict)
-        tract_acc, _, _, tract_f1 = calculate_acc_prec_recall_f1(tract_labels_lst, tract_pred_lst)   
-        logger.info('epoch [{}/{}] time: {}s \t{} loss: {} \tacc: {} f1: {}; \tTract acc: {}, f1: {}'
-                    .format(epoch, args.epoch, run_time, state, round(avg_loss, 4), round(org_acc, 4), round(org_f1, 4), round(tract_acc, 4), round(tract_f1, 4)))
-    # connectome instead of tract parcellation
-    else:
-        tract_labels_lst, tract_pred_lst, tract_acc, tract_f1 = None, None, None, None
-        logger.info('epoch [{}/{}] time: {:>7}s \t{:>6} loss: {:>6.4f} \tacc: {:>6.4f}, \tmacro f1: {:>6.4f}, prec: {:>6.4f}, rec: {:>6.4f}, \tweighted f1: {:>6.4f}, prec: {:>6.4f}, rec: {:>6.4f}'
-                    .format(epoch, args.epoch, run_time, state, avg_loss, org_acc, org_f1, org_precision, 
-                    org_recall, w_org_f1, w_org_precision, w_org_recall))
-        
-    return org_loss_lst, org_acc_lst, org_precision_lst, org_recall_lst, org_f1_lst, org_acc, org_f1, \
-           tract_acc, tract_f1, tract_labels_lst, tract_pred_lst
+    # Calculate metrics for label_1
+    org_acc_1, org_precision_1, org_recall_1, org_f1_1 = calculate_acc_prec_recall_f1(labels_lst_1, predicted_lst_1, 'macro')
+    # _, w_org_precision_1, w_org_recall_1, w_org_f1_1 = calculate_acc_prec_recall_f1(labels_lst_1, predicted_lst_1, 'weighted')
+    
+    # Append separate results for label_0 and label_1
+    acc_lst.append([org_acc_0, org_acc_1])
+    precision_lst.append([org_precision_0, org_precision_1])
+    recall_lst.append([org_recall_0, org_recall_1])
+    f1_lst.append([org_f1_0, org_f1_1])
+    
+    #  logger.info('epoch [{}/{}] time: {:>7}s \t{:>6} loss: {:>6.4f} \tacc: {:>6.4f}, \tmacro f1: {:>6.4f}, prec: {:>6.4f}, rec: {:>6.4f}, \tweighted f1: {:>6.4f}, prec: {:>6.4f}, rec: {:>6.4f}'
+    #                 .format(epoch, args.epoch, run_time, state, avg_loss, org_acc, org_f1, org_precision, 
+    #                 org_recall, w_org_f1, w_org_precision, w_org_recall))
+     
+    logger.info(f'epoch [{epoch}/{args.epoch}] time: {run_time:>7}s \t{state:>6} loss: {avg_loss:>6.4f} \t label 0 acc: {org_acc_0:>6.4f}, macro f1: {org_f1_0:>6.4f}, prec: {org_precision_0:>6.4f}, rec: {org_recall_0:>6.4f}, \t label 1 acc: {org_acc_1:>6.4f}, macro f1: {org_f1_1:>6.4f}, prec: {org_precision_1:>6.4f}, rec: {org_recall_1:>6.4f}')
+
+    
+    return loss_lst, acc_lst, precision_lst, recall_lst, f1_lst
 
 
-def results_logging(args, logger, eval_state, label_names, org_labels_lst, org_predicted_lst,
-                    tract_labels_lst, tract_predicted_lst, ordered_tract_cluster_mapping_dict):
+
+def results_logging(args, logger, eval_state, label_names, org_labels_lst, org_predicted_lst, atlas):
     """log results for original (800 clusters + 800 outliers) labels and tract (42+1other) labels"""
-    if args.use_tracts_training:   # if use tracts as training data, then use tracts as testing data
-        assert args.use_tracts_testing == True
-        
-    # calculate classification report and plot class analysis curves for different metrics
-    if not args.use_tracts_training:
-        label_names_str = label_names
-        # best metric
-        h5_name = 'unrelatedHCP_{}_results_best{}.h5'.format(eval_state, args.best_metric)
-        if not args.connectome:
-            try:
-                logger.info('{} original labels classification report as below'.format(len(label_names_str)))
-                classify_report(org_labels_lst, org_predicted_lst, label_names_str, logger, args.out_log_path, args.best_metric,eval_state, h5_name, obtain_conf_mat=False)
-                org_label_best_acc,_,_,org_label_best_mac_f1 = calculate_acc_prec_recall_f1(org_labels_lst, org_predicted_lst)
-                    
-            except:
-                logger.info('Warning!! Number of classes, {}, does not match size of target_names, {}. Try specifying the labels parameter'
-                            .format(np.unique(np.array(org_predicted_lst)).shape[0], len(label_names_str)))
-            try:
-                logger.info("Results for {} original labels with best f1 weights: Acc {} macro F1 {}".format(len(label_names_str), round_decimal(org_label_best_acc,5),round_decimal(org_label_best_mac_f1,5)))
-            except:
-                pass
-        else:
-            num_labels={"aparc+aseg":85,
-                    "aparc.a2009s+aseg":165}
-            classify_report(org_labels_lst, org_predicted_lst, label_names_str, logger, args.out_log_path, args.best_metric,eval_state, h5_name, obtain_conf_mat=False, connectome=True)
-            CM = ConnectomeMetrics(org_labels_lst, org_predicted_lst, encoding=args.encoding, num_labels=num_labels[args.atlas], out_path=args.out_log_path)
-            logger.info(CM.format_metrics())
+    label_names_str = label_names
+    # best metric
+    h5_name = 'HCP_{}_results_best{}.h5'.format(eval_state, args.best_metric)
 
-    if args.use_tracts_testing:
-        tract_label_names_str = list(ordered_tract_cluster_mapping_dict.keys())
-        h5_name = 'unrelatedHCP_{}_results_TractLabels_best{}.h5'.format(eval_state, args.best_metric)
-        try:
-            logger.info('{}+1 tract labels classification report as below'.format(len(tract_label_names_str)-1))
-            classify_report(tract_labels_lst, tract_predicted_lst, tract_label_names_str, logger, args.out_log_path, 
-                        args.best_metric, eval_state, h5_name, obtain_conf_mat=True)
-            tract_label_best_acc,_,_,tract_label_best_mac_f1 = calculate_acc_prec_recall_f1(tract_labels_lst, tract_predicted_lst)
-        except:
-            logger.info('Warning!! Number of classes, {}, does not match size of target_names, {}. Try specifying the labels parameter'
-                        .format(np.unique(np.array(tract_predicted_lst)).shape[0], len(tract_label_names_str)))
-        try:
-            logger.info("Results for {}+1 tract labels with best f1 weights: Acc {} F1 {}".format(len(tract_label_names_str)-1, round_decimal(tract_label_best_acc,5),round_decimal(tract_label_best_mac_f1,5)))        
-        except:
-            pass 
+    classify_report(org_labels_lst, org_predicted_lst, label_names_str, logger, args.out_log_path, args.best_metric,eval_state, h5_name, obtain_conf_mat=False, connectome=True)
+    CM = ConnectomeMetrics(org_labels_lst, org_predicted_lst, encoding=args.encoding, atlas=atlas, out_path=args.out_log_path)
+    logger.info(CM.format_metrics())
             
 
 def train_val_paths():

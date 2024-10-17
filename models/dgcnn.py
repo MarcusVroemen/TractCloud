@@ -59,14 +59,15 @@ def get_tract_graph_feature(x, k_point_level=15, device=torch.device('cuda')):
     return feature     # (num_fiber, 2*num_dims, num_points, k)
 
 class tract_DGCNN_cls(nn.Module):
-    def __init__(self, num_classes, args, device):
+    def __init__(self, num_classes_0, args, device, num_classes_1=None):
         super(tract_DGCNN_cls, self).__init__()
         self.args = args
         self.fiber_level_k = args.k
         self.fiber_level_k_global = args.k_global 
         self.k_point_level = args.k_point_level
         self.device = device
-        self.num_out_classes = num_classes
+        self.num_out_classes_0 = num_classes_0
+        self.num_out_classes_1 = num_classes_1
         self.depth = args.depth  # Added depth parameter to control number of layers
         
         # BatchNorm layers
@@ -100,9 +101,11 @@ class tract_DGCNN_cls(nn.Module):
         self.linear2 = nn.Linear(512, 256)
         self.bn7 = nn.BatchNorm1d(256)
         self.dp2 = nn.Dropout(p=args.dropout)
-        self.linear3 = nn.Linear(256, self.num_out_classes)
+        self.linear3_0 = nn.Linear(256, self.num_out_classes_0)
+        if  self.num_out_classes_1!=None:
+            self.linear3_1 = nn.Linear(256, self.num_out_classes_1)
 
-    def forward(self, x, info_point_set):
+    def forward(self, x, info_point_set, task_id):
         num_fiber = x.size(0)
         num_points = x.size(2)
 
@@ -143,7 +146,10 @@ class tract_DGCNN_cls(nn.Module):
         x = self.dp1(x)
         x = F.leaky_relu(self.bn7(self.linear2(x)), negative_slope=0.2)
         x = self.dp2(x)
-        x = self.linear3(x)
+        if task_id==0:
+            x = self.linear3_0(x)
+        elif task_id==1:
+            x = self.linear3_1(x)
         x = F.log_softmax(x, dim=1)
 
         return x

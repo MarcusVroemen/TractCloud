@@ -106,18 +106,18 @@ def process_curves(epoch, train_loss_lst, val_loss_lst, train_acc_lst, val_acc_l
     axes[0, 1].set_xticks(np.arange(1, len(epoch_lst) + 1, 5.0))
     
     # f1
-    if isinstance(train_f1_lst[0], list):
-        train_f1_macro, train_f1_weighted = zip(*train_f1_lst)
-        val_f1_macro, val_f1_weighted = zip(*val_f1_lst)
-        axes[0, 2].plot(epoch_lst, train_f1_macro, '-', color='tab:red', label='train f1 macro')
-        axes[0, 2].plot(epoch_lst, val_f1_macro, '-', color='tab:blue', label='val f1 macro')
-        axes[0, 2].plot(epoch_lst, train_f1_weighted, '-', color='tab:orange', label='train f1 weighted')
-        axes[0, 2].plot(epoch_lst, val_f1_weighted, '-', color='tab:green', label='val f1 weighted')
-        axes[0, 2].set_title('f1 Curve', fontsize=15)
-    else:
-        axes[0, 2].plot(epoch_lst, train_f1_lst, '-', color='tab:red', label='train f1')
-        axes[0, 2].plot(epoch_lst, val_f1_lst, '-', color='tab:blue', label='val f1')
-        axes[0, 2].set_title('f1 (marco) Curve', fontsize=15)
+    # if isinstance(train_f1_lst[0], list):
+    #     train_f1_macro, train_f1_weighted = zip(*train_f1_lst)
+    #     val_f1_macro, val_f1_weighted = zip(*val_f1_lst)
+    #     axes[0, 2].plot(epoch_lst, train_f1_macro, '-', color='tab:red', label='train f1 macro')
+    #     axes[0, 2].plot(epoch_lst, val_f1_macro, '-', color='tab:blue', label='val f1 macro')
+    #     axes[0, 2].plot(epoch_lst, train_f1_weighted, '-', color='tab:orange', label='train f1 weighted')
+    #     axes[0, 2].plot(epoch_lst, val_f1_weighted, '-', color='tab:green', label='val f1 weighted')
+    #     axes[0, 2].set_title('f1 Curve', fontsize=15)
+    # else:
+    axes[0, 2].plot(epoch_lst, train_f1_lst, '-', color='tab:red', label='train f1')
+    axes[0, 2].plot(epoch_lst, val_f1_lst, '-', color='tab:blue', label='val f1')
+    axes[0, 2].set_title('f1 (marco) Curve', fontsize=15)
     axes[0, 2].set_xlabel('epochs', fontsize=12)
     axes[0, 2].set_ylabel('f1', fontsize=12)
     axes[0, 2].grid()
@@ -125,18 +125,18 @@ def process_curves(epoch, train_loss_lst, val_loss_lst, train_acc_lst, val_acc_l
     axes[0, 2].set_xticks(np.arange(1, len(epoch_lst) + 1, 5.0))
 
     # precision
-    if isinstance(train_precision_lst[0], list):
-        train_precision_macro, train_precision_weighted = zip(*train_precision_lst)
-        val_precision_macro, val_precision_weighted = zip(*val_precision_lst)
-        axes[1, 0].plot(epoch_lst, train_precision_macro, '-', color='tab:red', label='train precision macro')
-        axes[1, 0].plot(epoch_lst, val_precision_macro, '-', color='tab:blue', label='val precision macro')
-        axes[1, 0].plot(epoch_lst, train_precision_weighted, '-', color='tab:orange', label='train precision weighted')
-        axes[1, 0].plot(epoch_lst, val_precision_weighted, '-', color='tab:green', label='val precision weighted')
-        axes[1, 0].set_title('Precision Curve', fontsize=15)
-    else:
-        axes[1, 0].plot(epoch_lst, train_precision_lst, '-', color='tab:red', label='train precision')
-        axes[1, 0].plot(epoch_lst, val_precision_lst, '-', color='tab:blue', label='val precision')
-        axes[1, 0].set_title('Precision (marco) Curve', fontsize=15)
+    # if isinstance(train_precision_lst[0], list):
+    #     train_precision_macro, train_precision_weighted = zip(*train_precision_lst)
+    #     val_precision_macro, val_precision_weighted = zip(*val_precision_lst)
+    #     axes[1, 0].plot(epoch_lst, train_precision_macro, '-', color='tab:red', label='train precision macro')
+    #     axes[1, 0].plot(epoch_lst, val_precision_macro, '-', color='tab:blue', label='val precision macro')
+    #     axes[1, 0].plot(epoch_lst, train_precision_weighted, '-', color='tab:orange', label='train precision weighted')
+    #     axes[1, 0].plot(epoch_lst, val_precision_weighted, '-', color='tab:green', label='val precision weighted')
+    #     axes[1, 0].set_title('Precision Curve', fontsize=15)
+    # else:
+    axes[1, 0].plot(epoch_lst, train_precision_lst, '-', color='tab:red', label='train precision')
+    axes[1, 0].plot(epoch_lst, val_precision_lst, '-', color='tab:blue', label='val precision')
+    axes[1, 0].set_title('Precision (marco) Curve', fontsize=15)
     axes[1, 0].set_xlabel('epochs', fontsize=12)
     axes[1, 0].set_ylabel('precision', fontsize=12)
     axes[1, 0].grid()
@@ -144,18 +144,18 @@ def process_curves(epoch, train_loss_lst, val_loss_lst, train_acc_lst, val_acc_l
     axes[1, 0].set_xticks(np.arange(1, len(epoch_lst) + 1, 5.0))
 
     # recall
-    if isinstance(train_recall_lst[0], list):
-        train_recall_macro, train_recall_weighted = zip(*train_recall_lst)
-        val_recall_macro, val_recall_weighted = zip(*val_recall_lst)
-        axes[1, 1].plot(epoch_lst, train_recall_macro, '-', color='tab:red', label='train recall macro')
-        axes[1, 1].plot(epoch_lst, val_recall_macro, '-', color='tab:blue', label='val recall macro')
-        axes[1, 1].plot(epoch_lst, train_recall_weighted, '-', color='tab:orange', label='train recall weighted')
-        axes[1, 1].plot(epoch_lst, val_recall_weighted, '-', color='tab:green', label='val recall weighted')
-        axes[1, 1].set_title('Recall Curve', fontsize=15)
-    else:
-        axes[1, 1].plot(epoch_lst, train_recall_lst, '-', color='tab:red', label='train recall')
-        axes[1, 1].plot(epoch_lst, val_recall_lst, '-', color='tab:blue', label='val recall')
-        axes[1, 1].set_title('Recall (marco) Curve', fontsize=15)
+    # if isinstance(train_recall_lst[0], list):
+    #     train_recall_macro, train_recall_weighted = zip(*train_recall_lst)
+    #     val_recall_macro, val_recall_weighted = zip(*val_recall_lst)
+    #     axes[1, 1].plot(epoch_lst, train_recall_macro, '-', color='tab:red', label='train recall macro')
+    #     axes[1, 1].plot(epoch_lst, val_recall_macro, '-', color='tab:blue', label='val recall macro')
+    #     axes[1, 1].plot(epoch_lst, train_recall_weighted, '-', color='tab:orange', label='train recall weighted')
+    #     axes[1, 1].plot(epoch_lst, val_recall_weighted, '-', color='tab:green', label='val recall weighted')
+    #     axes[1, 1].set_title('Recall Curve', fontsize=15)
+    # else:
+    axes[1, 1].plot(epoch_lst, train_recall_lst, '-', color='tab:red', label='train recall')
+    axes[1, 1].plot(epoch_lst, val_recall_lst, '-', color='tab:blue', label='val recall')
+    axes[1, 1].set_title('Recall (marco) Curve', fontsize=15)
     axes[1, 1].set_xlabel('epochs', fontsize=12)
     axes[1, 1].set_ylabel('Recall', fontsize=12)
     axes[1, 1].grid()
@@ -163,17 +163,17 @@ def process_curves(epoch, train_loss_lst, val_loss_lst, train_acc_lst, val_acc_l
     axes[1, 1].set_xticks(np.arange(1, len(epoch_lst) + 1, 5.0))
 
     # accuracy,  macro precision, macro recall, macro f1
-    if isinstance(train_f1_lst[0], list):
-        axes[1, 2].plot(epoch_lst, val_precision_macro, '-', color='tab:green', label='precision (macro)')
-        axes[1, 2].plot(epoch_lst, val_recall_macro, '-', color='tab:blue', label='recall (macro)')
-        axes[1, 2].plot(epoch_lst, val_f1_macro, '-', color='tab:olive', label='f1 (macro)')
-        axes[1, 2].plot(epoch_lst, val_precision_weighted, '-', color='tab:purple', label='precision (weighted)')
-        axes[1, 2].plot(epoch_lst, val_recall_weighted, '-', color='tab:cyan', label='recall (weighted)')
-        axes[1, 2].plot(epoch_lst, val_f1_weighted, '-', color='tab:orange', label='f1 (weighted)')
-    else:
-        axes[1, 2].plot(epoch_lst, val_precision_lst, '-', color='tab:green', label='precision (macro)')
-        axes[1, 2].plot(epoch_lst, val_recall_lst, '-', color='tab:blue', label='recall (macro)')
-        axes[1, 2].plot(epoch_lst, val_f1_lst, '-', color='tab:olive', label='f1 (macro)')
+    # if isinstance(train_f1_lst[0], list):
+    #     axes[1, 2].plot(epoch_lst, val_precision_macro, '-', color='tab:green', label='precision (macro)')
+    #     axes[1, 2].plot(epoch_lst, val_recall_macro, '-', color='tab:blue', label='recall (macro)')
+    #     axes[1, 2].plot(epoch_lst, val_f1_macro, '-', color='tab:olive', label='f1 (macro)')
+    #     axes[1, 2].plot(epoch_lst, val_precision_weighted, '-', color='tab:purple', label='precision (weighted)')
+    #     axes[1, 2].plot(epoch_lst, val_recall_weighted, '-', color='tab:cyan', label='recall (weighted)')
+    #     axes[1, 2].plot(epoch_lst, val_f1_weighted, '-', color='tab:orange', label='f1 (weighted)')
+    # else:
+    axes[1, 2].plot(epoch_lst, val_precision_lst, '-', color='tab:green', label='precision (macro)')
+    axes[1, 2].plot(epoch_lst, val_recall_lst, '-', color='tab:blue', label='recall (macro)')
+    axes[1, 2].plot(epoch_lst, val_f1_lst, '-', color='tab:olive', label='f1 (macro)')
     axes[1, 2].plot(epoch_lst, val_acc_lst, '-', color='tab:red', label='accuracy')
     axes[1, 2].scatter(best_f1_epoch, best_f1_mac, c='tab:olive', marker='P', label='best f1 (macro)')
     axes[1, 2].set_title('Metric Comparison Curve', fontsize=15)

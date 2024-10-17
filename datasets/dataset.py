@@ -111,30 +111,37 @@ class unrelatedHCP_PatchData(data.Dataset):
         # load data
         with open(os.path.join(root, '{}.pickle'.format(split)), 'rb') as file:
             data_dict = pickle.load(file)
-            
-        data_dict['label_name_aparc+aseg'] = [f"{i}_{j}" for i in range(85) for j in range(i, 85)]
+        data_dict['label_name_aparc+aseg'] = [f"{i}_{j}" for i in range(85) for j in range(i, 85)] #temp fix
         
+        # import pdb
+        # pdb.set_trace()
         self.features = data_dict['feat']
-        self.labels = data_dict[f'label_{self.atlas}']
-        self.label_names = data_dict[f'label_name_{self.atlas}']
         self.subject_ids = data_dict['subject_id']
+        if self.atlas=='both':
+            # Combine labels 
+            self.labels = [data_dict[f'label_aparc+aseg'], data_dict[f'label_aparc.a2009s+aseg']]
+            self.label_names = [data_dict[f'label_name_aparc+aseg'], data_dict[f'label_name_aparc.a2009s+aseg']]
+        else:
+            self.labels = data_dict[f'label_{self.atlas}']
+            self.label_names = data_dict[f'label_name_{self.atlas}']
         self.logger.info('Load {} data'.format(self.split))
         print("total labels in data: ", len(np.unique(self.labels)))
         
         # Threshold 
-        self._adjust_labels()
-        print("labels after thresholding: ", len(np.unique(self.labels)))
+        if self.threshold!=0:
+            self._adjust_labels()   
+            print("labels after thresholding: ", len(np.unique(self.labels)))
         
         # Select relevant data and remove unused data
-        self._select_relevant_data()
-        print("labels after selecting relevant streamlines: ", len(np.unique(self.labels)))
+        # self._select_relevant_data()
+        # print("labels after selecting relevant streamlines: ", len(np.unique(self.labels)))
                 
         # Compute the number of samples per class
-        self.num_classes = len(np.unique(self.label_names))
+        self.num_classes = [len(np.unique(self.label_names[0])), len(np.unique(self.label_names[1]))]
         self.samples_per_class = self._compute_samples_per_class()
         
-        if self.samples_per_class.sum().item() != len(self.features):
-            raise ValueError(f"Sum of samples_per_class ({samples_per_class.sum().item()}) does not match the number of features ({len(self.features)}).")
+        # if self.samples_per_class.sum().item() != len(self.features):
+        #     raise ValueError(f"Sum of samples_per_class ({samples_per_class.sum().item()}) does not match the number of features ({len(self.features)}).")
 
         # calculate brain-level features  [n_subject, n_fiber, n_point, n_feat], labels [n_subject, n_fiber, n_point or 1]
         self.brain_features, self.brain_labels = self._cal_brain_feat()
@@ -143,7 +150,7 @@ class unrelatedHCP_PatchData(data.Dataset):
         # [n_subject*n_fiber, n_point, n_feat], [n_subject*n_fiber, n_point or 1], [n_subject*n_fiber, n_point, n_feat, k], [n_subject, n_point, n_feat, k_global], [n_subject*n_fiber, 1]
         self.org_feat, self.org_label, self.local_feat, self.global_feat, self.new_subidx = self._cal_info_feat()
 
-    def _adjust_labels(self):
+    def _adjust_labels(self): #TODO cleanup this function
         """Change labels: unknown to zero and/or rare labels to 0"""
         # Set unknown labels to 0 (0,0; 0,1; 0,2 etc)
         # if self.threshold<0:
@@ -250,7 +257,7 @@ class unrelatedHCP_PatchData(data.Dataset):
             aug_matrices = np.zeros((num_subject, self.aug_times, 4, 4), dtype=np.float32)
         else:  # non-augmented data
             brain_features = np.zeros((num_subject, self.num_fiber, self.num_point, num_feat_per_point),dtype=np.float32)
-            brain_labels = np.zeros((num_subject, self.num_fiber,1), dtype=np.int64)
+            brain_labels = np.zeros((num_subject, self.num_fiber,2), dtype=np.int64)
                 
                 
         for i_subject, unique_id in enumerate(unique_subject_ids):  # for each subject
@@ -260,7 +267,7 @@ class unrelatedHCP_PatchData(data.Dataset):
             np.random.shuffle(cur_idxs)
             cur_select_idxs = cur_idxs[:self.num_fiber]
             cur_features = self.features[cur_select_idxs,:,:]  # [num_fiber_per_brain, num_point_per_fiber, num_feat_per_point]
-            cur_labels = self.labels[cur_select_idxs, None]
+            cur_labels = np.concatenate([self.labels[0][cur_select_idxs, None], self.labels[1][cur_select_idxs, None]], axis=1) #!#!!!!!
             
             if self.aug_times > 0:
                 # Augmentation the brain. Note that torch.from_numpy and .numpy() return data sharing the same memory location
@@ -448,13 +455,13 @@ class unrelatedHCP_PatchData(data.Dataset):
         
         # original features and labels
         fiber_feat = self.brain_features.reshape(-1, self.num_point, num_feat_per_point)  # [n_subject*n_fiber, n_point, n_feat]
-        fiber_label = self.brain_labels.reshape(-1, 1)  # [n_subject*n_fiber, 1]
+        fiber_label = self.brain_labels.reshape(-1, 2)  # [n_subject*n_fiber, 1]
         
         return fiber_feat, fiber_label, local_feat, global_feat, new_subidx
     
     def _compute_samples_per_class(self):
         """Compute the number of samples per class."""
-        samples_per_class = torch.bincount(torch.tensor(self.labels), minlength=self.num_classes)
+        samples_per_class = [torch.bincount(torch.tensor(self.labels[0]), minlength=self.num_classes[0]), torch.bincount(torch.tensor(self.labels[1]), minlength=self.num_classes[1])]
         return samples_per_class
 
 

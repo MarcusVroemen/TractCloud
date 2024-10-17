@@ -34,8 +34,9 @@ def load_batch_data():
         label_names =  list(ordered_tract_cluster_mapping_dict.keys()) 
     else:
         label_names = test_dataset.label_names
-    num_classes = len(np.unique(label_names))
-    logger.info('The number of classes is:{}'.format(num_classes))
+    num_classes = [len(np.unique(label_names[0])), len(np.unique(label_names[1]))]
+    logger.info('The number of classes is:{}'.format(num_classes[0]))
+    logger.info('The number of classes is:{}'.format(num_classes[1]))
 
     # test random feat
     test_global_feat = test_dataset.global_feat
@@ -49,15 +50,16 @@ def load_batch_data():
 def test_DL_net(net):
     """test the network"""
     total_test_loss = 0
-    test_labels_lst, test_predicted_lst = [], []
+    test_labels_lst_0, test_predicted_lst_0 = [], []
+    test_labels_lst_1, test_predicted_lst_1 = [], []
     # test
     with torch.no_grad():
         for j, data in enumerate(test_loader, start=0):
-            total_test_loss, test_labels_lst, test_predicted_lst = \
-                train_val_test_forward(j, data, net, 'test', total_test_loss, test_labels_lst, test_predicted_lst, 
-                                       args, device, num_classes, epoch=1, eval_global_feat=test_global_feat)
+            total_loss, labels_lst_0, predicted_lst_0, labels_lst_1, predicted_lst_1 = \
+                train_val_test_forward(j, data, net, 'test', total_test_loss, test_labels_lst_0, test_predicted_lst_0,
+                                       test_labels_lst_1, test_predicted_lst_1, args, device, num_classes, epoch=1, eval_global_feat=test_global_feat)
     
-    return test_labels_lst, test_predicted_lst
+    return labels_lst_0, predicted_lst_0, labels_lst_1, predicted_lst_1
     
     
 def test_paths():
@@ -75,6 +77,7 @@ def test_paths():
 
 
 if __name__ == '__main__':
+    time_start = time.time()
     # GPU check
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # Variable Space
@@ -106,34 +109,28 @@ if __name__ == '__main__':
     test_loader, label_names, num_classes, test_data_size, eval_state, test_global_feat, samples_per_class = load_batch_data()
     
     # Test on best org and tract weights separately
-    time_start = time.time()
     if args.connectome:
         weight_prefix_lst = ['org']
     else:
         weight_prefix_lst = ['org', 'tract']
         
+    time_DL_start = time.time()
     for weight_prefix in weight_prefix_lst:  # load best weight one by one
         # model setting
         args.weight_path = os.path.join(args.out_path, 'best_{}_{}_model.pth'.format(weight_prefix, args.best_metric))
         logger.info("Load best {} {} model".format(weight_prefix, args.best_metric))
         DL_model = load_model(args, num_classes, device, test=True)
         # test net
-        if weight_prefix == 'org':
-            org_labels_lst, org_predicted_lst = test_DL_net(DL_model)
-        elif weight_prefix == 'tract':
-            labels_lst, predicted_lst = test_DL_net(DL_model)
-            tract_labels_lst = cluster2tract_label(labels_lst, ordered_tract_cluster_mapping_dict)
-            tract_predicted_lst = cluster2tract_label(predicted_lst, ordered_tract_cluster_mapping_dict)
-    
+        labels_lst_0, predicted_lst_0, labels_lst_1, predicted_lst_1 = test_DL_net(DL_model)
+    time_DL_end = time.time()
     # log results
-    if args.connectome:
-        results_logging(args, logger, eval_state, label_names, org_labels_lst, org_predicted_lst, None, None, None)
-    else:
-        results_logging(args, logger, eval_state, label_names, org_labels_lst, org_predicted_lst, 
-                        tract_labels_lst, tract_predicted_lst, ordered_tract_cluster_mapping_dict)
+    results_logging(args, logger, eval_state, label_names[0], labels_lst_0, predicted_lst_0, "aparc+aseg")
+    results_logging(args, logger, eval_state, label_names[1], labels_lst_1, predicted_lst_1, "aparc.a2009s+aseg")
 
     # total processing time
     time_end = time.time() 
+    total_time_DL = round(time_DL_end-time_DL_start, 2)
     total_time = round(time_end-time_start, 2)
     logger.info('Test on {}'.format(args.out_path))
+    logger.info('Total DL processing time is {}s'.format(total_time_DL))
     logger.info('Total processing time is {}s'.format(total_time))

@@ -372,15 +372,17 @@ def meters(epoch, num_batch, total_loss, labels_lst, predicted_lst,
     # original labels 
     if args.connectome: # Use weighted metrics when predicting conenctomes because of the large class inbalance
         # average='weighted'
-        num_labels={"aparc+aseg":85,
-                    "aparc.a2009s+aseg":165}
-        labels_to_ignore=list(range(num_labels[args.atlas])) # ignore all labels with 0 (unknown) in the atlas
-        org_acc, mac_org_precision, mac_org_recall, mac_org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, labels_to_ignore, 'macro')
-        org_acc, org_precision, org_recall, org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, labels_to_ignore, 'weighted')
+        # num_labels={"aparc+aseg":85,
+        #             "aparc.a2009s+aseg":165}
+        # labels_to_ignore=list(range(num_labels[args.atlas])) # ignore all labels with 0 (unknown) in the atlas
+        # org_acc, mac_org_precision, mac_org_recall, mac_org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'macro', labels_to_ignore)
+        # org_acc, org_precision, org_recall, org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'weighted', labels_to_ignore)
+        org_acc, org_precision, org_recall, org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'macro')
+        org_acc, w_org_precision, w_org_recall, w_org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'weighted')
         org_acc_lst.append(org_acc)
-        org_precision_lst.append([mac_org_precision, org_precision])
-        org_recall_lst.append([mac_org_recall, org_recall])
-        org_f1_lst.append([mac_org_f1, org_f1])
+        org_precision_lst.append([org_precision, w_org_precision])
+        org_recall_lst.append([org_recall, w_org_recall])
+        org_f1_lst.append([org_f1, w_org_f1])
     else:
         org_acc, org_precision, org_recall, org_f1 = calculate_acc_prec_recall_f1(labels_lst, predicted_lst, 'macro')
         org_acc_lst.append(org_acc)
@@ -399,8 +401,8 @@ def meters(epoch, num_batch, total_loss, labels_lst, predicted_lst,
     else:
         tract_labels_lst, tract_pred_lst, tract_acc, tract_f1 = None, None, None, None
         logger.info('epoch [{}/{}] time: {:>7}s \t{:>6} loss: {:>6.4f} \tacc: {:>6.4f}, \tmacro f1: {:>6.4f}, prec: {:>6.4f}, rec: {:>6.4f}, \tweighted f1: {:>6.4f}, prec: {:>6.4f}, rec: {:>6.4f}'
-                    .format(epoch, args.epoch, run_time, state, avg_loss, org_acc, mac_org_f1, mac_org_precision, 
-                    mac_org_recall, org_f1, org_precision, org_recall))
+                    .format(epoch, args.epoch, run_time, state, avg_loss, org_acc, org_f1, org_precision, 
+                    org_recall, w_org_f1, w_org_precision, w_org_recall))
         
     return org_loss_lst, org_acc_lst, org_precision_lst, org_recall_lst, org_f1_lst, org_acc, org_f1, \
            tract_acc, tract_f1, tract_labels_lst, tract_pred_lst

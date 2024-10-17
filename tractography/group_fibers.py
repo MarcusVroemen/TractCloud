@@ -86,14 +86,14 @@ if __name__ == "__main__":
     # base_path = sys.argv[2]
     # min_fibers = int(sys.argv[3])
 
-    subject_id = '793465'
+    subject_id = '698168'
     base_path = '/media/volume/HCP_diffusion_MV/data/'
     min_fibers = 15
 
-    output_dir = os.path.join(base_path, subject_id, "output", "tracts_sorted_per_label")
-    tractography_path = os.path.join(base_path, subject_id, "output", "streamlines.vtk")
-    true_path = os.path.join(base_path, subject_id, 'output/labels_encoded_symmetric.txt')
-    pred_path = os.path.join(base_path, subject_id, 'TractCloud/connectome/predictions_encoded_symmetric.txt')
+    # output_dir = os.path.join(base_path, subject_id, "output", "tracts_sorted_per_label")
+    tractography_path = os.path.join(base_path, subject_id, "output", "streamlines_MNI.vtk")
+    true_path = os.path.join(base_path, subject_id, 'output/labels_aparc+aseg_symmetric.txt')
+    pred_path = os.path.join(base_path, subject_id, 'TractCloud_MNI/connectome/predictions_aparc+aseg_symmetric.txt')
 
     # Check if the tractography and labels files exist
     if not os.path.exists(tractography_path):
@@ -105,15 +105,15 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Ensure the output directory exists
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    # if not os.path.exists(output_dir):
+    #     os.makedirs(output_dir)
 
     fiber_array, num_fibers = read_tractography(tractography_path)
     true_labels = convert_labels_list(read_labels(true_path, 'encoded'), "symmetric", mode='decode', num_labels=85)
     pred_labels = convert_labels_list(read_labels(pred_path, 'encoded'), "symmetric", mode='decode', num_labels=85)
 
     
-    out_path='/media/volume/HCP_diffusion_MV/fiber_predictions/'
+    out_path='/media/volume/HCP_diffusion_MV/data/698168/TractCloud_MNI'
     os.mkdir(os.path.join(out_path, 'true'))
     os.mkdir(os.path.join(out_path, 'false'))
     

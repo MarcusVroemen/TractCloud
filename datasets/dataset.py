@@ -111,22 +111,23 @@ class unrelatedHCP_PatchData(data.Dataset):
         # load data
         with open(os.path.join(root, '{}.pickle'.format(split)), 'rb') as file:
             data_dict = pickle.load(file)
-
+            
+        data_dict['label_name_aparc+aseg'] = [f"{i}_{j}" for i in range(85) for j in range(i, 85)]
+        
         self.features = data_dict['feat']
         self.labels = data_dict[f'label_{self.atlas}']
         self.label_names = data_dict[f'label_name_{self.atlas}']
         self.subject_ids = data_dict['subject_id']
         self.logger.info('Load {} data'.format(self.split))
-        print(len(np.unique(self.labels)))
+        print("total labels in data: ", len(np.unique(self.labels)))
+        
         # Threshold 
         self._adjust_labels()
-        print(len(np.unique(self.labels)))
-        # import pdb
-        # pdb.set_trace()
+        print("labels after thresholding: ", len(np.unique(self.labels)))
+        
         # Select relevant data and remove unused data
         self._select_relevant_data()
-        print(len(np.unique(self.labels)))
-
+        print("labels after selecting relevant streamlines: ", len(np.unique(self.labels)))
                 
         # Compute the number of samples per class
         self.num_classes = len(np.unique(self.label_names))
@@ -253,6 +254,8 @@ class unrelatedHCP_PatchData(data.Dataset):
                 
                 
         for i_subject, unique_id in enumerate(unique_subject_ids):  # for each subject
+            # import pdb
+            # pdb.set_trace()
             cur_idxs = np.where(self.subject_ids == unique_id)[0]
             np.random.shuffle(cur_idxs)
             cur_select_idxs = cur_idxs[:self.num_fiber]

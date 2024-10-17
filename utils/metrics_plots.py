@@ -11,7 +11,7 @@ import seaborn as sns
 from sklearn.metrics import classification_report, accuracy_score, precision_recall_fscore_support, confusion_matrix 
 from utils.funcs import round_decimal
 
-def calculate_acc_prec_recall_f1(labels_lst, predicted_lst, ignore_labels=None, average='macro'):
+def calculate_acc_prec_recall_f1(labels_lst, predicted_lst, average='macro', ignore_labels=None):
     if ignore_labels is None:
         ignore_labels = []
 

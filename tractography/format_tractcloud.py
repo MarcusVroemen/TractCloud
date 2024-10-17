@@ -53,6 +53,7 @@ class TractCloudPreprocessor:
         streamlines, _ = read_tractography(tractography_dir, self.decay_factor) 
         
         labels = np.zeros((len(streamlines), len(self.atlases)), dtype=int)
+        print(labels.shape, subject_index)
         for i, atlas in enumerate(self.atlases):
             encoded_labels_path = os.path.join(subject_dir, f"labels_100K_{atlas}_{self.encoding}.txt")
             labels_path = os.path.join(subject_dir, f"labels_100K_{atlas}.txt")
@@ -232,9 +233,9 @@ class TractCloudPreprocessor:
                     label_names = [f"{i}_{j}" for i in range(self.num_labels[atlas]) for j in range(self.num_labels[atlas])]
                 elif self.encoding == 'symmetric':
                     label_names = [f"{i}_{j}" for i in range(self.num_labels[atlas]) for j in range(i, self.num_labels[atlas])]
-            train_dict[f'label_name_{atlas}'] = label_names
-            val_dict[f'label_name_{atlas}'] = label_names
-            test_dict[f'label_name_{atlas}'] = label_names
+                train_dict[f'label_name_{atlas}'] = label_names
+                val_dict[f'label_name_{atlas}'] = label_names
+                test_dict[f'label_name_{atlas}'] = label_names
         
         # Save the updated data to pickle files
         with open(train_path, 'wb') as file:

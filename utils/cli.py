@@ -58,6 +58,7 @@ def create_parser():
     parser.add_argument('--mark_endpoints', default=False, action='store_true', help='Mark streamline endpoints in model')
     parser.add_argument('--fibersampling', type=float, default=0, help='Distance in fiber sampling, higher means points higher distribution near ends')
     parser.add_argument('--threshold', type=int, default=0, help='')
+    parser.add_argument('--depth', type=int, default=0, help='dgcnn extra layers')
     
     return parser
 

@@ -297,6 +297,18 @@ class ConnectomeMetrics:
         Fmac_precision, Fmac_recall, Fmac_f1, Fsupport = precision_recall_fscore_support(filtered_labels, filtered_predictions, beta=1.0, average='macro', zero_division=np.nan) # ignore empty labels
         Fweighted_precision, Fweighted_recall, Fweighted_f1, Fsupport = precision_recall_fscore_support(filtered_labels, filtered_predictions, beta=1.0, average='weighted', zero_division=np.nan) # ignore empty labels
         
+        # import pdb 
+        # pdb.set_trace()
+        # labels_to_ignore = [[ 1,  1], [ 3, 26], [ 6, 10], [ 7,  7], [ 7, 10], [ 8,  8], [10,  6], [10,  7], [10, 10], [12, 12], [14, 14], [21, 30], [24, 28], [26,  3], [26, 26], [26, 27], [27, 26], [27, 27], [28, 24], [28, 28], [30, 21], [34, 38], [38, 34], [52, 75], [55, 55], [55, 57], [56, 56], [56, 77], [57, 55], [59, 59], [61, 61], [72, 72], [73, 73], [73, 77], [75, 52], [75, 75], [75, 76], [76, 75], [76, 76], [77, 56], [77, 73], [77, 77], [79, 79]]
+        # ignore_labels = convert_labels_list(labels_to_ignore, encoding_type='symmetric', 
+        #                                     mode='encode', num_labels=85)
+        # mask = ~np.isin(self.true_labels, ignore_labels)
+        # filtered_labels = np.array(self.true_labels)[mask]
+        # filtered_predictions = np.array(self.pred_labels)[mask]
+        # Facc = accuracy_score(filtered_labels, filtered_predictions)
+        # Fmac_precision, Fmac_recall, Fmac_f1, Fsupport = precision_recall_fscore_support(filtered_labels, filtered_predictions, beta=1.0, average='macro', zero_division=np.nan) # ignore empty labels
+        # Fweighted_precision, Fweighted_recall, Fweighted_f1, Fsupport = precision_recall_fscore_support(filtered_labels, filtered_predictions, beta=1.0, average='weighted', zero_division=np.nan) # ignore empty labels
+        
         # Storing the results
         metrics = {
             'Accuracy' : acc,
@@ -433,9 +445,6 @@ class ConnectomeMetrics:
 
             Network Metrics:
             ----------------
-            Degree Centrality (True, Pred): {Degree Centrality[0]}, {Degree Centrality[1]}
-            Eigenvector Centrality (True, Pred): {Eigenvector Centrality[0]}, {Eigenvector Centrality[1]}
-            Betweenness Centrality (True, Pred): {Betweenness Centrality[0]}, {Betweenness Centrality[1]}
             Global Efficiency (True, Pred): {Global Efficiency[0]:.4f}, {Global Efficiency[1]:.4f}
             Local Efficiency (True, Pred): {Local Efficiency[0]:.4f}, {Local Efficiency[1]:.4f}
             Modularity (True, Pred): {Modularity[0]:.4f}, {Modularity[1]:.4f}
@@ -446,3 +455,7 @@ class ConnectomeMetrics:
             Small-worldness Sigma (True, Pred): {Small-worldness Sigma[0]:.4f}, {Small-worldness Sigma[1]:.4f}
             Network Density (True, Pred): {Network Density[0]:.4f}, {Network Density[1]:.4f}
             """.format(**self.results)
+
+            # Degree Centrality (True, Pred): {Degree Centrality[0]}, {Degree Centrality[1]}
+            # Eigenvector Centrality (True, Pred): {Eigenvector Centrality[0]}, {Eigenvector Centrality[1]}
+            # Betweenness Centrality (True, Pred): {Betweenness Centrality[0]}, {Betweenness Centrality[1]}

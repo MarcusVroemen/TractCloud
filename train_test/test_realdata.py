@@ -138,13 +138,15 @@ logger.info('Inference time is {}s'.format(time.time()-time_start_model))
 
 
 if not args.connectome:
+    time_start_write = time.time()
     tract_pred_labels = cluster2tract_label(pred_labels, ordered_tract_cluster_mapping_dict)
     logger.info('Deep learning prediction is done.')
     # save parcellated vtp results
     tractography_parcellation(args, pd_tractography, tract_pred_labels, tract_label_names_str)  # pd tractography here is in the subject space.
+    logger.info('Time to write vtks is {}s'.format(time.time()-time_start_write))
 else:
     # Save predictions
-    time_start_write = time.time()
+    # time_start_write = time.time()
     # tractography_parcellation(args, pd_tractography, pred_labels, label_names_str)  # pd tractography here is in the subject space.
     # logger.info('Time to write vtks is {}s'.format(time.time()-time_start_write))
     
@@ -153,6 +155,7 @@ else:
     makepath(connectome_path)
     pred_labels_decoded = convert_labels_list(pred_labels, encoding_type=args.encoding, 
                                                 mode='decode', num_labels=85)
+
     # Write prediction files
     with open(os.path.join(connectome_path, f'predictions_{args.atlas}.txt'), 'w') as file:
         for prediction in pred_labels_decoded:
@@ -162,7 +165,7 @@ else:
             file.write(f'{prediction}\n')
     
     # Read true files
-    encode_labels_txt(s.path.join(os.path.dirname(args.tractography_path), f"labels_{args.atlas}.txt"), 
+    encode_labels_txt(os.path.join(os.path.dirname(args.tractography_path), f"labels_{args.atlas}.txt"), 
                       os.path.join(os.path.dirname(args.tractography_path), f"labels_{args.atlas}_{args.encoding}.txt"), 'symmetric', num_labels=85)
     with open(os.path.join(os.path.dirname(args.tractography_path), f"labels_{args.atlas}_{args.encoding}.txt"), 'r') as file:
         true_labels = [int(line) for line in file]

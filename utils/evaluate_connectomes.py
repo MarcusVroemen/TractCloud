@@ -121,14 +121,15 @@ def compare_connectomes(connectomes_test, connectomes_retest):
     for i, subj_id1 in enumerate(subject_ids):
         for subj_id2 in subject_ids:
             # Compute metrics for same-subject comparison
-            corr_in, _ = pearsonr(connectomes_test[subj_id1].flatten(), connectomes_retest[subj_id1].flatten())
-            corr_same, _ = pearsonr(connectomes_test[subj_id1].flatten(), connectomes_test[subj_id1].flatten())
+            corr_test_retest, _ = pearsonr(connectomes_test[subj_id1].flatten(), connectomes_retest[subj_id1].flatten())
+            
             cosine_same = 1 - cosine(connectomes_test[subj_id1].flatten(), connectomes_retest[subj_id1].flatten())
             frobenius_same = norm(connectomes_test[subj_id1] - connectomes_retest[subj_id1], 'fro')
             
             # Cross-subject comparison
             if subj_id1!=subj_id2:
                 corr_cross, _ = pearsonr(connectomes_test[subj_id1].flatten(), connectomes_retest[subj_id2].flatten())
+                
                 cosine_cross = 1 - cosine(connectomes_test[subj_id1].flatten(), connectomes_retest[subj_id2].flatten())
                 frobenius_cross = norm(connectomes_test[subj_id1] - connectomes_retest[subj_id2], 'fro')
             else:
@@ -137,8 +138,7 @@ def compare_connectomes(connectomes_test, connectomes_retest):
                 frobenius_cross = np.nan
                 
             results[(subj_id1, subj_id2)] = {
-                'Correlation test-test': corr_in,
-                'Correlation test-retest': corr_same,
+                'Correlation test-retest': corr_test_retest,
                 'Cosine Similarity (Same)': cosine_same,
                 'Frobenius Norm (Same)': frobenius_same,
                 'Correlation (Cross)': corr_cross,
@@ -163,5 +163,20 @@ comparison_results = compare_connectomes(connectomes_true, connectomes_pred)
 # Pretty-print the results
 import pprint
 pprint.pprint(comparison_results)
+
+
+
+# Test-retest reliability of structural brain networks from diffusion MRI
+# Per measure absolute within-subject difference 
+# Between-subject differences (average of each subject against others)
+# test if within < between, percentile bootstrap of mean differences
+
+
+
+
+
+
+
+
 
 

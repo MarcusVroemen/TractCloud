@@ -95,24 +95,30 @@ def load_batch_data():
     except:
         train_feat_shape = train_dataset.org_feat.shape
         val_feat_shape = val_dataset.org_feat.shape
-    logger.info('The training data feature size is:{}'.format(train_feat_shape))
-    logger.info('The validation data feature size is:{}'.format(val_feat_shape))
+    logger.info('The training data feature size is: {}'.format(train_feat_shape))
+    logger.info('The validation data feature size is: {}'.format(val_feat_shape))
     
     # load label names
     if args.use_tracts_training:
         label_names =  list(ordered_tract_cluster_mapping_dict.keys()) 
     else:
-        #TODO
         assert train_dataset.label_names == val_dataset.label_names
         label_names = train_dataset.label_names
     # label_names_h5 = h5py.File(os.path.join(args.out_path, 'label_names.h5'), 'w')
     # label_names_h5['y_names'] = label_names
-    logger.info('The label names are: {}'.format(str(label_names)))
-    #TODO
-    num_classes = [len(np.unique(label_names[0])), len(np.unique(label_names[1]))]
-    logger.info('The number of classes is:{}'.format(num_classes[0]))
-    logger.info('The number of classes is:{}'.format(num_classes[1]))
 
+    logger.info('The label names are: {}'.format(str(label_names)))
+    num_classes=[]
+    if len(args.atlas)==1:
+        num_classes=len(np.unique(label_names))
+        logger.info('The number of classes is for {} is: {}'.format(args.atlas[0], num_classes))
+    elif len(args.atlas)==2: 
+        num_classes = [len(np.unique(label_names[0])), len(np.unique(label_names[1]))]
+        logger.info('The number of classes is for {} is: {}'.format(args.atlas[0], num_classes[0]))
+        logger.info('The number of classes is for {} is: {}'.format(args.atlas[1], num_classes[1]))
+    else:
+        raise ValueError("Currently, only supports one or two atlases.")
+        
     # global feature
     train_global_feat = train_dataset.global_feat
     val_global_feat = val_dataset.global_feat
@@ -126,7 +132,11 @@ def load_batch_data():
 def load_model(args, num_classes, device, test=False):
     # model setting 
     if args.model_name == 'dgcnn':
-        DL_model = tract_DGCNN_cls(num_classes_0=num_classes[0], num_classes_1=num_classes[1], args=args, device=device)
+        if len(args.atlas)>1:
+            DL_model = tract_DGCNN_cls(num_classes_0=num_classes[0], num_classes_1=num_classes[1], args=args, device=device)
+        else:
+            DL_model = tract_DGCNN_cls(num_classes_0=num_classes, args=args, device=device)
+            
     elif args.model_name == 'pointnet':
         DL_model = PointNetCls(k=args.k, k_global=args.k_global, num_classes=num_classes, feature_transform=False, first_feature_transform=False)
     else:
@@ -169,8 +179,15 @@ def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst_0,
         # points [B, N_point, 3], label [B,1](cls) or [B,N_point](seg), [B, n_point, 3, k], [B]
         points, label, klocal_feat_set, new_subidx = data 
         # labels
-        label_0 = label[:,0]  # First task
-        label_1 = label[:,1]  # Second task
+        # import pdb
+        # pdb.set_trace()
+        if len(args.atlas)==1:
+            label_0 = label[:,0]  # Single task (single atlas) [B,1] to [B]
+        elif len(args.atlas)==2:
+            label_0 = label[:,0]  # Task 0
+            label_1 = label[:,1]  # Task 1
+        else:
+            raise ValueError("Currently, only supports one or two atlases.")
         
     if state == 'train':
         global_feat = torch.from_numpy(train_global_feat)
@@ -215,7 +232,9 @@ def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst_0,
         points, info_point_set = points.to(device), info_point_set.to(device)
     else:
         points, info_point_set = points.to(device), info_point_set.to(device)
-        label_0, label_1 = label_0.to(device), label_1.to(device)
+        label_0 = label_0.to(device)
+        if len(args.atlas)==2:
+             label_1 = label_1.to(device)
     
     if state == 'train':
         optimizer.zero_grad()
@@ -223,16 +242,14 @@ def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst_0,
     else:
         net = net.eval() 
     # get desired results for pred -- [B,N_point,Cls] for seg, [B,Cls] for cls
-    if args.model_name == 'dgcnn':
+    if args.model_name == 'dgcnn': 
         pred_0 = net(points, info_point_set, task_id=0)   
-        pred_1 = net(points, info_point_set, task_id=1)   
+        if len(args.atlas)==2:
+            pred_1 = net(points, info_point_set, task_id=1)   
     elif args.model_name == 'pointnet':
         pred,_,_=net(points, info_point_set)
     else:
         raise ValueError('Please input valid model name dgcnn | pointnet')       
-    
-    # pred_0 = pred_0.view(-1, num_classes_0) # seg (B,N_point,Cls) -> (B*N_point,Cls); cls (B,Cls) -> (B,Cls)
-    # pred_1 = pred_1.view(-1, num_classes_1)
     
     if state != 'test_realdata':
         # label = label.view(-1,1)[:,0]
@@ -242,26 +259,39 @@ def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst_0,
         lossfn_1 = torch.nn.NLLLoss()
         
         loss_0 = lossfn_0(pred_0, label_0)
-        loss_1 = lossfn_1(pred_1, label_1)
-        loss = loss_0 + loss_1
+        if len(args.atlas)==2:
+            loss_1 = lossfn_1(pred_1, label_1)
+            loss = loss_0 + loss_1
+        else:
+            loss = loss_0
     
     if state == 'train':
         loss.backward()
         optimizer.step()
     
     _, pred_idx_0 = torch.max(pred_0, dim=1)
-    _, pred_idx_1 = torch.max(pred_1, dim=1)
+    if len(args.atlas)==2:
+        _, pred_idx_1 = torch.max(pred_1, dim=1)
     
     total_loss += loss.item()
     
-    # Append labels and predictions for both tasks
-    labels_lst_0.extend(label_0.cpu().detach().numpy())
-    predicted_lst_0.extend(pred_idx_0.cpu().detach().numpy())
-    
-    labels_lst_1.extend(label_1.cpu().detach().numpy())
-    predicted_lst_1.extend(pred_idx_1.cpu().detach().numpy())
+    if len(args.atlas) == 1:
+        labels_lst_0.extend(label_0.cpu().detach().numpy())
+        predicted_lst_0.extend(pred_idx_0.cpu().detach().numpy())
+        
+        # Since there's no second atlas, return placeholders for the second task
+        labels_lst_1 = [0] * len(labels_lst_0)
+        predicted_lst_1 = [0] * len(predicted_lst_0)
+        
+        return total_loss, labels_lst_0, predicted_lst_0, labels_lst_1, predicted_lst_1
 
-    return total_loss, labels_lst_0, predicted_lst_0, labels_lst_1, predicted_lst_1
+    elif len(args.atlas) == 2:
+        labels_lst_0.extend(label_0.cpu().detach().numpy())
+        predicted_lst_0.extend(pred_idx_0.cpu().detach().numpy())
+        labels_lst_1.extend(label_1.cpu().detach().numpy())
+        predicted_lst_1.extend(pred_idx_1.cpu().detach().numpy())
+        
+        return total_loss, labels_lst_0, predicted_lst_0, labels_lst_1, predicted_lst_1
     
     
 def train_val_DL_net(net):
@@ -372,7 +402,10 @@ def meters(epoch, num_batch, total_loss, labels_lst_0, predicted_lst_0, labels_l
     # _, w_org_precision_0, w_org_recall_0, w_org_f1_0 = calculate_acc_prec_recall_f1(labels_lst_0, predicted_lst_0, 'weighted')
 
     # Calculate metrics for label_1
-    org_acc_1, org_precision_1, org_recall_1, org_f1_1 = calculate_acc_prec_recall_f1(labels_lst_1, predicted_lst_1, 'macro')
+    if all(label == 0 for label in labels_lst_1):
+        org_acc_1, org_precision_1, org_recall_1, org_f1_1 = 0, 0, 0, 0
+    else:
+        org_acc_1, org_precision_1, org_recall_1, org_f1_1 = calculate_acc_prec_recall_f1(labels_lst_1, predicted_lst_1, 'macro')
     # _, w_org_precision_1, w_org_recall_1, w_org_f1_1 = calculate_acc_prec_recall_f1(labels_lst_1, predicted_lst_1, 'weighted')
     
     # Append separate results for label_0 and label_1
@@ -385,8 +418,9 @@ def meters(epoch, num_batch, total_loss, labels_lst_0, predicted_lst_0, labels_l
     #                 .format(epoch, args.epoch, run_time, state, avg_loss, org_acc, org_f1, org_precision, 
     #                 org_recall, w_org_f1, w_org_precision, w_org_recall))
      
-    logger.info(f'epoch [{epoch}/{args.epoch}] time: {run_time:>7}s \t{state:>6} loss: {avg_loss:>6.4f} \t label 0 acc: {org_acc_0:>6.4f}, macro f1: {org_f1_0:>6.4f}, prec: {org_precision_0:>6.4f}, rec: {org_recall_0:>6.4f}, \t label 1 acc: {org_acc_1:>6.4f}, macro f1: {org_f1_1:>6.4f}, prec: {org_precision_1:>6.4f}, rec: {org_recall_1:>6.4f}')
-
+    logger.info(f'epoch [{epoch}/{args.epoch}] time: {run_time:>7}s \t{state:>6} loss: {avg_loss:>6.4f} \t'
+                f'label 0 acc: {org_acc_0:>6.4f}, macro f1: {org_f1_0:>6.4f}, prec: {org_precision_0:>6.4f}, rec: {org_recall_0:>6.4f}, \t'
+                f'label 1 acc: {org_acc_1:>6.4f}, macro f1: {org_f1_1:>6.4f}, prec: {org_precision_1:>6.4f}, rec: {org_recall_1:>6.4f}')
     
     return loss_lst, acc_lst, precision_lst, recall_lst, f1_lst
 
@@ -422,6 +456,7 @@ if __name__ == '__main__':
     args.manualSeed = 0 
     print("Random Seed: ", args.manualSeed)
     fix_seed(args.manualSeed)
+    args.atlas = args.atlas.split(',')
     # Adjustment to get training 
     # args.recenter=False 
     args.include_org_data=False

@@ -107,3 +107,5 @@ tractography/UKB_paper_scripts/
 plots/
 
 *.csv
+/analysis/ShapeAnalysisTractography-main
+/analysis/CPM

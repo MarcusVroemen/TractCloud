@@ -113,7 +113,7 @@ def label_wise_metrics(true_labels, pred_labels):
     return accuracy, precision, recall, f1
 
 class ConnectomeMetrics:
-    def __init__(self, true_labels=None, pred_labels=None, encoding='default', atlas="aparc.aseg", out_path='output'): # , state_labels_encoded=True
+    def __init__(self, true_labels=None, pred_labels=None, encoding='symmetric', atlas="aparc+aseg", out_path='output', graph=False, plot=True): # , state_labels_encoded=True
         self.true_labels = true_labels
         self.pred_labels = pred_labels
         self.atlas = atlas
@@ -121,8 +121,7 @@ class ConnectomeMetrics:
         self.out_path = out_path
         self.results = {}
         
-        num_labels_dict={"aparc+aseg":85,
-            "aparc.a2009s+aseg":165}
+        num_labels_dict={"aparc+aseg":85, "aparc.a2009s+aseg":165}
         self.num_labels = num_labels_dict[atlas]
         
         # Decode labels from 1D list to 2D node pairs if necessary
@@ -137,22 +136,28 @@ class ConnectomeMetrics:
         self.true_connectome = create_connectome(self.true_labels_decoded, self.num_labels)
         self.pred_connectome = create_connectome(self.pred_labels_decoded, self.num_labels)
 
-        # Save connectomes
+        Save connectomes
         save_connectome(self.true_connectome, self.out_path, title=f'{self.atlas}_true')
         save_connectome(self.pred_connectome, self.out_path, title=f'{self.atlas}_pred')
         
-        # Save different connectome plots
-        self.plot_connectomes(zero_diagonal=False, log_scale=True)
-        
-        # Compute, save and plot alternate "connectomes"
-        self.difference_conenctome()
-        self.percentile_change_connectome()
-        self.accuracy_connectome()
+        if plot:
+            # Save different connectome plots
+            self.plot_connectomes(zero_diagonal=False, log_scale=True)
+            
+            # Compute, save and plot alternate "connectomes"
+            self.difference_conenctome()
+            self.percentile_change_connectome()
+            self.accuracy_connectome()
         
         self.compute_metrics()
-        # # pprint.pprint(self.results)
-        # self.compute_network_metrics()
-        # pprint.pprint(self.results)
+        if graph:
+            self.compute_network_metrics(version='true')
+            self.compute_network_metrics(version='pred')
+        
+        # Save metrics
+        results = pd.DataFrame([self.results])
+        results.to_csv(os.path.join(self.out_path, f"metrics_{atlas}.csv"), index=False)
+        print(f"Metrics saved to 'metrics_{atlas}.csv'")
 
         
     def plot_connectomes(self, zero_diagonal=False, log_scale=True):
@@ -314,56 +319,64 @@ class ConnectomeMetrics:
         omega = L_rand / L - C / C_rand
         sigma = (C / C_rand) / (L / L_rand)
         return omega, sigma        
+    # Transform weights: reciprocal of non-zero weights
+    def transform_weights(self, matrix):
+        with np.errstate(divide='ignore'):  # Ignore warnings for division by zero
+            reciprocal_matrix = 1.0 / matrix
+        reciprocal_matrix[np.isinf(reciprocal_matrix)] = 0  # Set infinities back to 0 (no connection)
+        return reciprocal_matrix
 
-    def compute_network_metrics(self):
+    def compute_network_metrics(self, version='true', transform_weights=True):
         """Compute a variety of network metrics for true and predicted connectomes."""
-        G_true = nx.from_numpy_array(self.true_connectome)
-        G_pred = nx.from_numpy_array(self.pred_connectome)
+        if version == 'true':
+            matrix = self.true_connectome
+        elif version == 'pred':
+            matrix = self.pred_connectome
 
-        omega_true, sigma_true = self.small_worldness(G_true, 1)
-        omega_pred, sigma_pred = self.small_worldness(G_pred, 1)
+        # Create the graph
+        G = nx.from_numpy_array(matrix)
+        
+        # Transform weights if specified
+        # Do this because the weights must be seen as connection strength and a higher weight means e.g. shorter path length
+        # if transform_weights:
+        matrix_reciprocal = self.transform_weights(matrix)
+        G_reciprocal = nx.from_numpy_array(matrix_reciprocal)
+
+        # Use reciprocal weights for path-based metrics (shortest path length, efficiency, betweenness centrality).
+        # Keep original weights for clustering, modularity, assortativity, and most centrality measures.
+
+        # omega, sigma = self.small_worldness(G, 1)
 
         metrics = {
-            'Degree Centrality': (
-                dict(G_true.degree(weight='weight')), 
-                dict(G_pred.degree(weight='weight'))
-            ),
-            'Eigenvector Centrality': (
-                nx.eigenvector_centrality_numpy(G_true, weight='weight'), 
-                nx.eigenvector_centrality_numpy(G_pred, weight='weight')
-            ),
-            'Betweenness Centrality': (
-                nx.betweenness_centrality(G_true, weight='weight', normalized=True), 
-                nx.betweenness_centrality(G_pred, weight='weight', normalized=True)
-            ),
-            'Global Efficiency': (
-                nx.global_efficiency(G_true), 
-                nx.global_efficiency(G_pred)
-            ),
-            'Local Efficiency': (
-                nx.local_efficiency(G_true), 
-                nx.local_efficiency(G_pred)
-            ),
-            'Modularity': (
-                nx.algorithms.community.modularity(G_true, nx.algorithms.community.greedy_modularity_communities(G_true, weight='weight')), 
-                nx.algorithms.community.modularity(G_pred, nx.algorithms.community.greedy_modularity_communities(G_pred, weight='weight'))
-            ),
-            'Global Reaching Centrality': (
-                self.global_reaching_centrality(G_true), 
-                self.global_reaching_centrality(G_pred)
-            ),
-            'Clustering Coefficient': (
-                nx.average_clustering(G_true, weight='weight'), 
-                nx.average_clustering(G_pred, weight='weight')
-            ),
-            'Path Length': (
-                nx.average_shortest_path_length(G_true, weight='weight'), 
-                nx.average_shortest_path_length(G_pred, weight='weight')
-            ),
-            'Small-worldness Omega': (omega_true, omega_pred),
-            'Small-worldness Sigma': (sigma_true, sigma_pred),
-            'Network Density': (nx.density(G_true), nx.density(G_pred))
+            # f'Node Strength {version}': dict(G.degree(weight='weight')),  # Weighted degree (strength)
+            # f'Node Efficiency {version}': {node: self.node_efficiency(G, node) for node in G.nodes()}  # Efficiency for each node
+            
+            # Connectivity
+            # f'Degree Centrality {version}': dict(G.degree(weight='weight')),  # Measures node importance based on number of connections, summing edge weights for each node (same as "node strength")
+            # f'Eigenvector Centrality {version}': nx.eigenvector_centrality_numpy(G, weight='weight'),  # Measures influence of nodes based on connectivity to other central nodes.
+            # f'Betweenness Centrality {version}': nx.betweenness_centrality(G, weight='weight', normalized=True),  # Measures frequency of a node on shortest paths, indicating its role in information flow.
+            
+            # Efficiency
+            f'Global Efficiency {version}': nx.global_efficiency(G_reciprocal),  # Measures overall efficiency of information transfer in the network.
+            f'Local Efficiency {version}': nx.local_efficiency(G_reciprocal),  # Measures fault tolerance, showing how well neighbors are connected if a node is removed.
+            
+            # Assortativity and Modularity
+            f'Assortativity {version}': nx.degree_assortativity_coefficient(G, weight='weight'),  # Measures tendency of nodes to connect with similar-degree nodes.
+            f'Modularity {version}': nx.algorithms.community.modularity(G, nx.algorithms.community.greedy_modularity_communities(G, weight='weight')),  # Measures strength of community structure.
+
+            # Clustering and Centrality
+            f'Clustering Coefficient {version}': nx.average_clustering(G, weight='weight'),  # Measures tendency of nodes to form tightly connected groups.
+            f'Global Reaching Centrality {version}': self.global_reaching_centrality(G),  # Quantifies network's hierarchical structure based on how central nodes reach others.
+            
+            # Path and Distance
+            f'Path Length {version}': nx.average_shortest_path_length(G_reciprocal, weight='weight'),  # Measures integration, as average shortest path between nodes. (same as "characteristic path length")
+
+            # Small-worldness and Density
+            # f'Small-worldness Omega {version}': omega,  # Quantifies small-world properties by comparing clustering and path length to random networks.
+            # f'Small-worldness Sigma {version}': sigma,  # Alternative measure for small-worldness, combining clustering and path length.
+            f'Network Density {version}': nx.density(G),  # Measures overall connectivity density, calculated as ratio of actual to possible edges.
         }
+
 
         self.results.update(metrics)
         

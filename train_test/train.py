@@ -45,7 +45,6 @@ def load_datasets(eval_split, args, test=False, logger=None):
                 k_ds_rate=args.k_ds_rate,
                 recenter=args.recenter,
                 include_org_data=args.include_org_data,
-                encoding=args.encoding,
                 atlas=args.atlas,
                 threshold=args.threshold)
     else:
@@ -69,7 +68,6 @@ def load_datasets(eval_split, args, test=False, logger=None):
         k_ds_rate=args.k_ds_rate,
         recenter=args.recenter,
         include_org_data=args.include_org_data,
-        encoding=args.encoding,
         atlas=args.atlas,
         threshold=args.threshold)
 
@@ -107,7 +105,7 @@ def load_batch_data():
     # label_names_h5 = h5py.File(os.path.join(args.out_path, 'label_names.h5'), 'w')
     # label_names_h5['y_names'] = label_names
 
-    logger.info('The label names are: {}'.format(str(label_names)))
+    # logger.info('The label names are: {}'.format(str(label_names)))
     num_classes=[]
     if len(args.atlas)==1:
         num_classes=len(np.unique(label_names))
@@ -138,7 +136,10 @@ def load_model(args, num_classes, device, test=False):
             DL_model = tract_DGCNN_cls(num_classes_0=num_classes, args=args, device=device)
             
     elif args.model_name == 'pointnet':
-        DL_model = PointNetCls(k=args.k, k_global=args.k_global, num_classes=num_classes, feature_transform=False, first_feature_transform=False)
+        if len(args.atlas)>1:
+            DL_model = PointNetCls(k=args.k, k_global=args.k_global, num_classes_0=num_classes[0], num_classes_1=num_classes[1], feature_transform=False, first_feature_transform=False)
+        else:
+            DL_model = PointNetCls(k=args.k, k_global=args.k_global, num_classes_0=num_classes, feature_transform=False, first_feature_transform=False)
     else:
         raise ValueError('Please input valid model name dgcnn | pointnet')
         
@@ -179,8 +180,6 @@ def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst_0,
         # points [B, N_point, 3], label [B,1](cls) or [B,N_point](seg), [B, n_point, 3, k], [B]
         points, label, klocal_feat_set, new_subidx = data 
         # labels
-        # import pdb
-        # pdb.set_trace()
         if len(args.atlas)==1:
             label_0 = label[:,0]  # Single task (single atlas) [B,1] to [B]
         elif len(args.atlas)==2:
@@ -247,13 +246,13 @@ def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst_0,
         if len(args.atlas)==2:
             pred_1 = net(points, info_point_set, task_id=1)   
     elif args.model_name == 'pointnet':
-        pred,_,_=net(points, info_point_set)
+        pred_0,_,_=net(points, info_point_set, task_id=0)
+        if len(args.atlas)==2:
+            pred_1,_,_ = net(points, info_point_set, task_id=1)   
     else:
         raise ValueError('Please input valid model name dgcnn | pointnet')       
     
     if state != 'test_realdata':
-        # label = label.view(-1,1)[:,0]
-            
         # Compute loss for both tasks
         lossfn_0 = torch.nn.NLLLoss()
         lossfn_1 = torch.nn.NLLLoss()
@@ -273,7 +272,8 @@ def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst_0,
     if len(args.atlas)==2:
         _, pred_idx_1 = torch.max(pred_1, dim=1)
     
-    total_loss += loss.item()
+    if state != 'test_realdata':
+        total_loss += loss.item()
     
     if len(args.atlas) == 1:
         labels_lst_0.extend(label_0.cpu().detach().numpy())
@@ -286,10 +286,13 @@ def train_val_test_forward(idx_data, data, net, state, total_loss, labels_lst_0,
         return total_loss, labels_lst_0, predicted_lst_0, labels_lst_1, predicted_lst_1
 
     elif len(args.atlas) == 2:
-        labels_lst_0.extend(label_0.cpu().detach().numpy())
         predicted_lst_0.extend(pred_idx_0.cpu().detach().numpy())
-        labels_lst_1.extend(label_1.cpu().detach().numpy())
         predicted_lst_1.extend(pred_idx_1.cpu().detach().numpy())
+        if state != 'test_realdata':
+            labels_lst_0.extend(label_0.cpu().detach().numpy())
+            labels_lst_1.extend(label_1.cpu().detach().numpy())
+        else:
+            labels_lst_0, labels_lst_1=0, 0
         
         return total_loss, labels_lst_0, predicted_lst_0, labels_lst_1, predicted_lst_1
     
@@ -312,6 +315,11 @@ def train_val_DL_net(net):
     org_best_f1_wts, tract_best_f1_wts = None, None
     org_best_f1_val_labels_lst, tract_best_f1_val_labels_lst = [], []
     org_best_f1_val_pred_lst, tract_best_f1_val_pred_lst = [], []
+
+    # Early stopping parameters
+    best_val_loss = float('inf')
+    patience = 20 #args.patience  # Number of epochs to wait before stopping
+    patience_counter = 0
 
     for epoch in range(args.epoch):
         train_start_time = time.time()
@@ -358,31 +366,44 @@ def train_val_DL_net(net):
                    val_labels_lst_1, val_predicted_lst_1, metrics['val']['loss'], metrics['val']['acc'], 
                    metrics['val']['precision'], metrics['val']['recall'], metrics['val']['f1'], val_time, 'val')
             
-
         # Save weights at regular intervals
-        if epoch % args.save_step == 0:
-            torch.save(net.state_dict(), f'{args.out_path}/epoch_{epoch}_model.pth')
-            print(f'Save {args.out_path}/epoch_{epoch}_model.pth')
-
-
+        # if epoch % args.save_step == 0:
+        #     torch.save(net.state_dict(), f'{args.out_path}/epoch_{epoch}_model.pth')
+        #     print(f'Save {args.out_path}/epoch_{epoch}_model.pth')
+            
         # Track the best metrics and swap if necessary
         if metrics['val']['f1'][-1][0] > org_best_f1_mac:
             org_best_f1_mac, org_best_f1_epoch, org_best_f1_wts, org_best_f1_val_labels_lst, org_best_f1_val_pred_lst = \
                 best_swap(metrics['val']['f1'][-1][0], epoch, net, [val_labels_lst_0, val_labels_lst_1], [val_predicted_lst_0, val_predicted_lst_1])
+        
+        # Early stopping based on validation loss
+        if total_val_loss < best_val_loss-0.001:
+            best_val_loss = total_val_loss
+            patience_counter = 0  # Reset patience counter if improvement
+            save_best_weights(net, org_best_f1_wts, args.out_path, 'f1', org_best_f1_epoch, org_best_f1_mac, logger=None)
+            # logger.info(f"New best model saved at epoch {epoch} with validation loss {total_val_loss:.4f}")
+        else:
+            patience_counter += 1  # No improvement
+            logger.info(f"No improvement in validation loss. Patience: {patience_counter}/{patience}")
+
+        if patience_counter >= patience:
+            logger.info(f"Early stopping at epoch {epoch} due to no improvement in validation loss for {patience} consecutive epochs.")
+            break
+        
 
     # Save best weights
-    save_best_weights(net, org_best_f1_wts, args.out_path, 'org_f1', org_best_f1_epoch, org_best_f1_mac, logger)
+    save_best_weights(net, org_best_f1_wts, args.out_path, 'f1', org_best_f1_epoch, org_best_f1_mac, logger)
 
     # Plot performance curves
-    process_curves(args.epoch, metrics['train']['loss'], metrics['val']['loss'], metrics['train']['acc'], metrics['val']['acc'],
+    process_curves(len(metrics['train']['loss']), metrics['train']['loss'], metrics['val']['loss'], metrics['train']['acc'], metrics['val']['acc'],
                    metrics['train']['precision'], metrics['val']['precision'], metrics['train']['recall'], metrics['val']['recall'],
-                   metrics['train']['f1'], metrics['val']['f1'], -1, -1, org_best_f1_mac, org_best_f1_epoch, args.out_path)
+                   metrics['train']['f1'], metrics['val']['f1'], -1, -1, org_best_f1_mac, org_best_f1_epoch, args.out_path, args.atlas)
 
     # remove checkpoints
-    saved_steps = list(range(args.save_step, args.epoch+1, args.save_step))[:-1] # save the last epoch
-    for epoch in saved_steps:
-        os.remove('{}/epoch_{}_model.pth'.format(args.out_path, epoch))
-        print('Remove {}/epoch_{}_model.pth'.format(args.out_path, epoch))
+    # saved_steps = list(range(args.save_step, args.epoch+1, args.save_step))[:-1] # save the last epoch
+    # for epoch in saved_steps:
+    #     os.remove('{}/epoch_{}_model.pth'.format(args.out_path, epoch))
+    #     print('Remove {}/epoch_{}_model.pth'.format(args.out_path, epoch))
     
     # total processing time
     time_end = time.time() 
@@ -399,14 +420,12 @@ def meters(epoch, num_batch, total_loss, labels_lst_0, predicted_lst_0, labels_l
     
     # Calculate metrics for label_0
     org_acc_0, org_precision_0, org_recall_0, org_f1_0 = calculate_acc_prec_recall_f1(labels_lst_0, predicted_lst_0, 'macro')
-    # _, w_org_precision_0, w_org_recall_0, w_org_f1_0 = calculate_acc_prec_recall_f1(labels_lst_0, predicted_lst_0, 'weighted')
 
     # Calculate metrics for label_1
     if all(label == 0 for label in labels_lst_1):
         org_acc_1, org_precision_1, org_recall_1, org_f1_1 = 0, 0, 0, 0
     else:
         org_acc_1, org_precision_1, org_recall_1, org_f1_1 = calculate_acc_prec_recall_f1(labels_lst_1, predicted_lst_1, 'macro')
-    # _, w_org_precision_1, w_org_recall_1, w_org_f1_1 = calculate_acc_prec_recall_f1(labels_lst_1, predicted_lst_1, 'weighted')
     
     # Append separate results for label_0 and label_1
     acc_lst.append([org_acc_0, org_acc_1])
@@ -414,14 +433,14 @@ def meters(epoch, num_batch, total_loss, labels_lst_0, predicted_lst_0, labels_l
     recall_lst.append([org_recall_0, org_recall_1])
     f1_lst.append([org_f1_0, org_f1_1])
     
-    #  logger.info('epoch [{}/{}] time: {:>7}s \t{:>6} loss: {:>6.4f} \tacc: {:>6.4f}, \tmacro f1: {:>6.4f}, prec: {:>6.4f}, rec: {:>6.4f}, \tweighted f1: {:>6.4f}, prec: {:>6.4f}, rec: {:>6.4f}'
-    #                 .format(epoch, args.epoch, run_time, state, avg_loss, org_acc, org_f1, org_precision, 
-    #                 org_recall, w_org_f1, w_org_precision, w_org_recall))
-     
-    logger.info(f'epoch [{epoch}/{args.epoch}] time: {run_time:>7}s \t{state:>6} loss: {avg_loss:>6.4f} \t'
-                f'label 0 acc: {org_acc_0:>6.4f}, macro f1: {org_f1_0:>6.4f}, prec: {org_precision_0:>6.4f}, rec: {org_recall_0:>6.4f}, \t'
-                f'label 1 acc: {org_acc_1:>6.4f}, macro f1: {org_f1_1:>6.4f}, prec: {org_precision_1:>6.4f}, rec: {org_recall_1:>6.4f}')
-    
+    if org_acc_1==0: 
+        logger.info(f'epoch [{epoch}/{args.epoch}] time: {run_time:>7}s \t{state:>6} loss: {avg_loss:>6.4f} \t'
+                    f'acc: {org_acc_0:>6.4f}, macro f1: {org_f1_0:>6.4f}, prec: {org_precision_0:>6.4f}, rec: {org_recall_0:>6.4f}')
+    else:
+        logger.info(f'epoch [{epoch}/{args.epoch}] time: {run_time:>7}s \t{state:>6} loss: {avg_loss:>6.4f} \t'
+                    f'label 0 acc: {org_acc_0:>6.4f}, macro f1: {org_f1_0:>6.4f}, prec: {org_precision_0:>6.4f}, rec: {org_recall_0:>6.4f}, \t'
+                    f'label 1 acc: {org_acc_1:>6.4f}, macro f1: {org_f1_1:>6.4f}, prec: {org_precision_1:>6.4f}, rec: {org_recall_1:>6.4f}')
+        
     return loss_lst, acc_lst, precision_lst, recall_lst, f1_lst
 
 
@@ -433,7 +452,7 @@ def results_logging(args, logger, eval_state, label_names, org_labels_lst, org_p
     h5_name = 'HCP_{}_results_best{}.h5'.format(eval_state, args.best_metric)
 
     classify_report(org_labels_lst, org_predicted_lst, label_names_str, logger, args.out_log_path, args.best_metric,eval_state, h5_name, obtain_conf_mat=False, connectome=True)
-    CM = ConnectomeMetrics(org_labels_lst, org_predicted_lst, encoding=args.encoding, atlas=atlas, out_path=args.out_log_path)
+    CM = ConnectomeMetrics(org_labels_lst, org_predicted_lst, atlas=atlas, out_path=args.out_log_path)
     logger.info(CM.format_metrics())
             
 
@@ -466,12 +485,9 @@ if __name__ == '__main__':
     args.rot_ang_lst = str2num(args.rot_ang_lst)
     args.scale_ratio_range = str2num(args.scale_ratio_range)
     # save local+global feature
-    args.save_knn_neighbors = True
+    args.save_knn_neighbors = False
     # paths
     train_val_paths()
-    # Tract cluster mapping
-    if not args.connectome:
-        ordered_tract_cluster_mapping_dict = obtain_TractClusterMapping()  # {'tract name': ['cluster_xxx','cluster_xxx', ... 'cluster_xxx']}
     # Record the training process and values
     logger = create_logger(args.out_path)
     logger.info('=' * 55)

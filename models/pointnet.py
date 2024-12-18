@@ -161,7 +161,7 @@ class PointNetfeat(nn.Module):
             return torch.cat([x, pointfeat], 1), trans, trans_feat
 
 class PointNetCls(nn.Module):
-    def __init__(self, k=0, k_global=0, num_classes=2, feature_transform=False, first_feature_transform=False):
+    def __init__(self, k=0, k_global=0, num_classes_0=2, feature_transform=False, first_feature_transform=False, num_classes_1=None):
         super(PointNetCls, self).__init__()
         self.feature_transform = feature_transform
         self.first_feature_transform = first_feature_transform
@@ -170,17 +170,24 @@ class PointNetCls(nn.Module):
         self.feat = PointNetfeat(k=k, k_global=k_global, global_feat=True, feature_transform=feature_transform, first_feature_transform=first_feature_transform)
         self.fc1 = nn.Linear(1024, 512)
         self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, num_classes)
+        self.fc3 = nn.Linear(256, num_classes_0)
+        if num_classes_1!=None:
+            self.fc3_1 = nn.Linear(256, num_classes_1)
+            
         self.dropout = nn.Dropout(p=0.3)
-        # self.dropout = nn.Dropout(p=dropout)  # todo: add dropout param that can be tuned outside
         self.bn1 = nn.BatchNorm1d(512)
         self.bn2 = nn.BatchNorm1d(256)
         self.relu = nn.ReLU()
 
-    def forward(self, x, info_point_set):
+    def forward(self, x, info_point_set, task_id=0):
         """x (num_fiber, 3, num_points)"""
         x, trans, trans_feat = self.feat(x, info_point_set)
         x = F.relu(self.bn1(self.fc1(x)))
         x = F.relu(self.bn2(self.dropout(self.fc2(x))))
-        x = self.fc3(x)
+        
+        if task_id==0:
+            x = self.fc3(x)
+        elif task_id==1:
+            x = self.fc3_1(x)
+        
         return F.log_softmax(x, dim=1), trans, trans_feat

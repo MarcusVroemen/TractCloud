@@ -26,13 +26,14 @@ def process_subject_metrics(subject_id, atlas, mode):
         print(true_path)    
     
     csv_path = os.path.join(out_path, f'metrics_{atlas}.csv')
-    if os.path.exists(csv_path) and os.path.exists(f"/media/volume/MV_HCP/HCP_MRtrix_{mode}/{subject_id}/TractCloud/connectome_{atlas}_pred.csv"):
-        print(f"Metrics CSV for subject {subject_id} and atlas {atlas} already exists. Reading...")
-        df = pd.read_csv(csv_path)
-        df['subject_id'] = subject_id
-        df['atlas'] = atlas
-        df['mode'] = mode
-    elif os.path.exists(true_path) and os.path.exists(pred_path):
+    # if os.path.exists(csv_path) and os.path.exists(f"/media/volume/MV_HCP/HCP_MRtrix_{mode}/{subject_id}/TractCloud/connectome_{atlas}_pred.csv"):
+    #     print(f"Metrics CSV for subject {subject_id} and atlas {atlas} already exists. Reading...")
+    #     df = pd.read_csv(csv_path)
+    #     df['subject_id'] = subject_id
+    #     df['atlas'] = atlas
+    #     df['mode'] = mode
+    #     return df
+    if os.path.exists(true_path) and os.path.exists(pred_path):
         print(f"{subject_id} {atlas} {mode} processing...")
         with open(true_path, 'r') as file:
             true_labels = [int(line.strip()) for line in file]
@@ -40,9 +41,8 @@ def process_subject_metrics(subject_id, atlas, mode):
             pred_labels = [int(line.strip()) for line in file]
 
         # Compute connectome metrics
-        print("A")
         CM = ConnectomeMetrics(true_labels=true_labels, pred_labels=pred_labels, atlas=atlas, out_path=out_path, graph=True, plot=False)
-        print("B")
+
         if os.path.exists(csv_path):
             df = pd.read_csv(csv_path)
             df['subject_id'] = subject_id
@@ -82,23 +82,12 @@ def compute_metrics(mode):
 
 if __name__ == "__main__":
     # Compute metrics for both modes
-    # process_subject_metrics(subject_id=105923, atlas=atlases[0], mode="retest")
-    # test_metrics = compute_metrics("test")
-    # print('done')
-    # retest_metrics = compute_metrics("retest")
+    test_metrics = compute_metrics("test")
+    retest_metrics = compute_metrics("retest")
 
-    # # Combine test and retest metrics
-    # combined_metrics = pd.concat([test_metrics, retest_metrics], ignore_index=True)
-    # combined_output_file = os.path.join(output_dir, 'TRT_combined_aggregated_metrics.csv')
-    # combined_metrics.to_csv(combined_output_file, index=False)
-    # print(f"Combined metrics saved to {combined_output_file}")
-    true1 = np.loadtxt("/media/volume/MV_HCP/HCP_MRtrix_retest/103818/TractCloud/connectome_aparc+aseg_true.csv", delimiter=',')
-    pred1 = np.loadtxt("/media/volume/MV_HCP/HCP_MRtrix_retest/103818/TractCloud/connectome_aparc+aseg_pred.csv", delimiter=',')
-    true2 = np.loadtxt("/media/volume/MV_HCP/HCP_MRtrix_retest/103818/TractCloud/connectome_aparc.a2009s+aseg_true.csv", delimiter=',')
-    pred2 = np.loadtxt("/media/volume/MV_HCP/HCP_MRtrix_retest/103818/TractCloud/connectome_aparc.a2009s+aseg_pred.csv", delimiter=',')
-    # import pdb
-    # pdb.set_trace()
-    print(sum(sum(true1)))
-    print(sum(sum(pred1)))
-    print(sum(sum(true2)))
-    print(sum(sum(pred2)))
+    # Combine test and retest metrics
+    combined_metrics = pd.concat([test_metrics, retest_metrics], ignore_index=True)
+    combined_output_file = os.path.join(output_dir, 'TRT_combined_aggregated_metrics.csv')
+    combined_metrics.to_csv(combined_output_file, index=False)
+    print(f"Combined metrics saved to {combined_output_file}")
+

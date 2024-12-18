@@ -3,6 +3,7 @@ import time
 import torch.utils.data as data
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
 import pickle
 import sys
 import os
@@ -75,7 +76,7 @@ class RealData_PatchData(data.Dataset):
 class unrelatedHCP_PatchData(data.Dataset):
     def __init__(self, root, out_path, logger, split='train', num_fiber_per_brain=10000, num_point_per_fiber=15, 
                  use_tracts_training=False, k=0, k_global=0, rot_ang_lst=[0,0,0], scale_ratio_range=[0,0], trans_dis=0.0,
-                 aug_axis_lst=['LR','AP', 'SI'], aug_times=10, cal_equiv_dist=False, k_ds_rate=0.1, recenter=False, include_org_data=False, encoding='default', atlas='aparc+aseg', threshold=0):        
+                 aug_axis_lst=['LR','AP', 'SI'], aug_times=10, cal_equiv_dist=False, k_ds_rate=0.1, recenter=False, include_org_data=False, atlas='aparc+aseg', threshold=0):        
         self.root = root
         self.out_path = out_path
         self.split = split
@@ -109,32 +110,35 @@ class unrelatedHCP_PatchData(data.Dataset):
                     .format(self.cal_equiv_dist, self.use_endpoints_dist))
                 
         # load data
-        with open(os.path.join(root, '{}.pickle'.format(split)), 'rb') as file:
+        with open(os.path.join(self.root, '{}.pickle'.format(self.split)), 'rb') as file:
             data_dict = pickle.load(file)
-        data_dict['label_name_aparc+aseg'] = [f"{i}_{j}" for i in range(85) for j in range(i, 85)] #temp fix        
+        data_dict['label_name_aparc+aseg'] = [f"{i}_{j}" for i in range(85) for j in range(i, 85)] #!temp fix        
         self.features = data_dict['feat']
         self.subject_ids = data_dict['subject_id']
         # Load labels and names for each atlas, if multiple are gives
         self.labels = []
         self.label_names = []
         for atlas_name in self.atlas:
-            atlas_labels = data_dict[f'label_{atlas_name}']
             atlas_label_names = data_dict[f'label_name_{atlas_name}']
-            self.labels.append(atlas_labels)
             self.label_names.append(atlas_label_names)        
+            
+            atlas_labels = data_dict[f'label_{atlas_name}']
+            atlas_labels = np.where(np.isin(atlas_labels, list(range(self.num_labels[atlas_name]))), 0, atlas_labels) # set all labels with a 0 to 0
+            
+            # self.analyze_threshold_impact(atlas_labels)
+            atlas_labels = self._threshold(atlas_labels, atlas_name)
+            
+            self.labels.append(atlas_labels)
+            
+            self.logger.info("Total labels with streamlines: {}/{} for {} atlas".format(len(np.unique(atlas_labels)), len(atlas_label_names), atlas_name))
+            
         if len(self.atlas) == 1: # Simplify structure if only one atlas is used
             self.labels = self.labels[0]
             self.label_names = self.label_names[0]
 
         self.logger.info('Load {} data'.format(self.split))
-        print("total labels in data: ", len(np.unique(self.labels)))
         
-        # Threshold 
-        if self.threshold!=0:
-            self._adjust_labels()   
-            print("labels after thresholding: ", len(np.unique(self.labels)))
-        
-        # Select relevant data and remove unused data
+        # Select relevant data and remove unused data and save memory
         # self._select_relevant_data()
         # print("labels after selecting relevant streamlines: ", len(np.unique(self.labels)))
                 
@@ -149,34 +153,122 @@ class unrelatedHCP_PatchData(data.Dataset):
         # [n_subject*n_fiber, n_point, n_feat], [n_subject*n_fiber, n_point or 1], [n_subject*n_fiber, n_point, n_feat, k], [n_subject, n_point, n_feat, k_global], [n_subject*n_fiber, 1]
         self.org_feat, self.org_label, self.local_feat, self.global_feat, self.new_subidx = self._cal_info_feat()
 
-    def _adjust_labels(self): #TODO cleanup this function
-        """Change labels: unknown to zero and/or rare labels to 0"""
-        # Set unknown labels to 0 (0,0; 0,1; 0,2 etc)
-        # if self.threshold<0:
-        #     # self.labels = [0 if isinstance(x, int) and 0 <= x < self.num_labels[self.atlas] else x for x in self.labels]
-        #     self.labels = np.where(np.isin(self.labels, list(range(self.num_labels[self.atlas]))), 0, self.labels)
-        #     print(self.labels[:20])
-        if abs(self.threshold)==50: # Connections present in less than 50% of subjects are filtered out, set to 0
-            rare_labels = np.loadtxt(f'/media/volume/HCP_diffusion_MV/TrainData_MRtrix_100_symmetric_D0/rare_labels_{abs(self.threshold)}%_{self.atlas}.txt', dtype=int)
-            self.labels = np.where(np.isin(self.labels, list(rare_labels)), 0, self.labels)
-        elif self.threshold>0: # Each must have at least 100 conenctions
-            if self.split=='train':
-                unique_labels, counts = np.unique(self.labels, return_counts=True)
-                rare_labels = unique_labels[counts < self.threshold]
+    def analyze_threshold_impact(self, labels):
+        """
+        Analyze the impact of various threshold levels on class distributions.
+        
+        Generates:
+        1. Histogram of number of fibers per class (log-scaled y-axis).
+        2. Plot of the number of classes and fibers excluded at each threshold level.
+        """
+        
+        thresholds = list(range(0, 101, 10))
+        excluded_classes = []
+        excluded_fibers = []
+
+        # Calculate fibers per class
+        unique_labels, counts = np.unique(labels, return_counts=True)
+
+        # Histogram: Fibers per class
+        plt.figure(figsize=(10, 6))
+        plt.hist(counts, bins=200, log=True, color='skyblue', edgecolor='black')
+        plt.xlabel("Number of Fibers")
+        plt.ylabel("Classes (log scale)")
+        plt.title("Distribution of Number of Fibers per Class")
+        plt.grid(True, axis='y', linestyle='--', alpha=0.7)
+        plt.savefig('/media/volume/HCP_diffusion_MV/TractCloud/plots/FibersPerClass')
+
+        # Analyze for each threshold level
+        for threshold in thresholds:
+            subject_count = len(np.unique(self.subject_ids))
+            min_subjects_required = (threshold / 100) * subject_count
+            
+            # Count number of subjects per label
+            label_subject_counts = {label: 0 for label in unique_labels}
+            for subject_id in np.unique(self.subject_ids):
+                subject_indices = np.where(self.subject_ids == subject_id)[0]
+                subject_labels = np.unique(labels[subject_indices])
+                for label in subject_labels:
+                    label_subject_counts[label] += 1
+            
+            # Identify rare labels for the current threshold
+            rare_labels = [label for label, count in label_subject_counts.items() if count < min_subjects_required]
+            num_excluded_classes = len(rare_labels)
+            num_excluded_fibers = np.sum([counts[i] for i, label in enumerate(unique_labels) if label in rare_labels])
+
+            excluded_classes.append(num_excluded_classes)
+            excluded_fibers.append(num_excluded_fibers)
+
+        # Plot the results across thresholds
+        fig, ax1 = plt.subplots(figsize=(10, 6))
+
+        ax1.set_xlabel("Threshold Level (%)")
+        ax1.set_ylabel("Excluded Classes", color="tab:blue")
+        ax1.plot(thresholds, excluded_classes, color="tab:blue", marker="o", label="Excluded Classes")
+        ax1.tick_params(axis="y", labelcolor="tab:blue")
+
+        ax2 = ax1.twinx()
+        ax2.set_ylabel("Excluded Fibers", color="tab:red")
+        ax2.plot(thresholds, excluded_fibers, color="tab:red", marker="x", linestyle="--", label="Excluded Fibers")
+        ax2.tick_params(axis="y", labelcolor="tab:red")
+
+        plt.title("Impact of Thresholding on Class and Fiber Exclusion")
+        fig.tight_layout()
+        plt.grid(True, axis='x', linestyle='--', alpha=0.7)
+        plt.savefig('/media/volume/HCP_diffusion_MV/TractCloud/plots/ClassesPerThreshold')
+
+        # Log results
+        for t, classes, fibers in zip(thresholds, excluded_classes, excluded_fibers):
+            self.logger.info(f"Threshold: {t}%, Excluded Classes: {classes}, Excluded Fibers: {fibers}")
+        
+    def _threshold(self, labels, atlas_name): 
+        """Adjust labels: set unknown/rare labels to zero based on threshold percentage of subjects."""
+        
+        if self.split == "train":
+            subject_count = len(np.unique(self.subject_ids))  # Get the number of unique subjects
+            
+            # Initialize a dictionary to count label occurrences per subject
+            label_subject_counts = {label: 0 for label in np.unique(labels)}
+            
+            # Loop through all subject IDs and corresponding labels
+            for subject_id in np.unique(self.subject_ids):
+                subject_indices = np.where(self.subject_ids == subject_id)[0]  # Indices of the current subject
+                subject_labels = np.unique(labels[subject_indices])  # Get unique labels for this subject
                 
-                self.labels = np.where(np.isin(self.labels, list(rare_labels)), 0, self.labels)
+                # Increment count for each label that appears for this subject
+                for label in subject_labels:
+                    label_subject_counts[label] += 1
+            
+            # Determine the minimum number of subjects for a label to appear based on the percentage threshold
+            min_subjects_required = (self.threshold / 100) * subject_count
+            
+            # Set labels to 0 if they occur in less than the required number of subjects
+            rare_labels = [label for label, count in label_subject_counts.items() if count < min_subjects_required]
+            labels = np.where(np.isin(labels, rare_labels), 0, labels)
+            
+            # Save rare labels to file for future use
+            file_path = os.path.join(self.root, f'thresholded_labels_{self.threshold}_{atlas_name}.txt')
+            with open(file_path, 'w') as f:
+                for label in rare_labels:
+                    f.write(f'{label}\n')
+
+        elif self.split in ["val", "test"]:
+            # Load rare labels from the training phase
+            file_path = os.path.join(self.root, f'thresholded_labels_{self.threshold}_{atlas_name}.txt')
+            
+            if os.path.exists(file_path):
+                with open(file_path, 'r') as f:
+                    rare_labels = [int(label.strip()) for label in f.readlines()]
                 
-                with open(f'/media/volume/HCP_diffusion_MV/TrainData_MRtrix_100_symmetric_D0/rare_labels_{self.threshold}_{self.atlas}.txt', 'w') as f:
-                    for label in rare_labels:
-                        f.write(f'{label}\n')
+                # Set labels to 0 if they are in the rare labels list
+                labels = np.where(np.isin(labels, rare_labels), 0, labels)
             else:
-                rare_labels = np.loadtxt(f'/media/volume/HCP_diffusion_MV/TrainData_MRtrix_100_symmetric_D0/rare_labels_{self.threshold}_{self.atlas}.txt', dtype=int)
-                self.labels = np.where(np.isin(self.labels, list(rare_labels)), 0, self.labels)
-        elif self.threshold==-2:
-            label_dict = generate_label_dict(num_labels=self.num_labels[self.atlas], method='symmetric')
-            for i in range(self.num_labels[self.atlas]):
-                diagonal_label = label_dict[(i, i)]
-                self.labels = np.where(self.labels ==diagonal_label, 0, self.labels)
+                raise FileNotFoundError(f"Rare labels file not found: {file_path}")
+
+        # Print the number of labels set to 0 (optional, for debugging)
+        self.logger.info(f'Labels set to 0 due to {self.threshold}% thresholding: {len(np.unique(rare_labels))}')
+
+        return labels
             
 
     def _select_relevant_data(self):
@@ -336,7 +428,12 @@ class unrelatedHCP_PatchData(data.Dataset):
                 brain_features[i_subject*self.aug_times:(i_subject+1)*self.aug_times, :,:,:] = aug_features
             
             else:
-                brain_features[i_subject,:,:,:] = cur_features
+                if np.all(cur_features == 0):
+                    print(f"cur_features has only zeros: {cur_features.shape}")
+                try:
+                    brain_features[i_subject,:,:,:] = cur_features
+                except:
+                    print(f"cur_features has wrong shape!:{cur_features.shape}")
             
             if self.use_tracts_training:
                 # map cluster label to tract label
@@ -344,8 +441,12 @@ class unrelatedHCP_PatchData(data.Dataset):
                 cur_labels = cluster2tract_label(cur_labels, ordered_tract_cluster_mapping_dict, output_lst=False)
             if self.aug_times > 0:
                 brain_labels[i_subject*self.aug_times:(i_subject+1)*self.aug_times,...] = cur_labels[None,...].repeat(self.aug_times, axis=0)  # [aug_times, num_fiber_per_brain, num_point_per_fiber or 1]
+            
             else:
-                brain_labels[i_subject,...] = cur_labels
+                try:
+                    brain_labels[i_subject,...] = cur_labels
+                except:
+                    pass
         
         if self.aug_times > 0:      
             # save augmentation matrices

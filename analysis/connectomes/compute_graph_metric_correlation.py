@@ -41,11 +41,15 @@ for atlas in atlases:
         # Compute Pearson correlation and p-value
         corr, p_value = pearsonr(true_values, pred_values)
         
+        
         # Compute mean and standard deviation for true and predicted values
         true_mean = true_values.mean()
         true_std = true_values.std()
         pred_mean = pred_values.mean()
         pred_std = pred_values.std()
+        
+        # Compute normalized Mean Absolute Error (nMAE)
+        nMAE = ((true_values - pred_values).abs().mean())/true_values.mean()
         
         # Append result as a dictionary
         results.append({
@@ -56,7 +60,8 @@ for atlas in atlases:
             'True Mean': true_mean,
             'True Std': true_std,
             'Pred Mean': pred_mean,
-            'Pred Std': pred_std
+            'Pred Std': pred_std,
+            'nMAE': nMAE
         })
         
         # Create scatter plot

@@ -12,9 +12,9 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.append('../')
+sys.path.append('../../')
 from utils.metrics_connectome import *
 
-mode=test
 # Load subject IDs
 subject_file = '/media/volume/MV_HCP/subjects_tractography_output_1000_test.txt'
 with open(subject_file, 'r') as f:
@@ -59,7 +59,7 @@ def process_subject_metrics(subject_id, atlas):
 all_metrics_df = pd.DataFrame()
 
 # Run computations in parallel with up to 32 threads
-with ThreadPoolExecutor(max_workers=32) as executor:
+with ThreadPoolExecutor(max_workers=1) as executor:
     futures = []
     for atlas in atlases:
         for subject_id in subject_ids:
@@ -72,6 +72,6 @@ with ThreadPoolExecutor(max_workers=32) as executor:
             all_metrics_df = pd.concat([all_metrics_df, result], ignore_index=True)
 
 # Optionally save the aggregated metrics
-output_file = '/media/volume/HCP_diffusion_MV/TractCloud/analysis/data/aggregated_metrics.csv'
+output_file = '/media/volume/HCP_diffusion_MV/TractCloud/analysis/connectomes/data/aggregated_metrics.csv'
 all_metrics_df.to_csv(output_file, index=False)
 print(f"Aggregated metrics saved to {output_file}")

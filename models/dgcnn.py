@@ -104,9 +104,10 @@ class tract_DGCNN_cls(nn.Module):
         self.dp2_0 = nn.Dropout(p=args.dropout)
         self.linear3_0 = nn.Linear(256, self.num_out_classes_0)
         if  self.num_out_classes_1!=None:
-            self.linear2_1 = nn.Linear(512, 256)
-            self.bn7_1 = nn.BatchNorm1d(256)
-            self.dp2_1 = nn.Dropout(p=args.dropout)
+            # Uncomment/adjust following lines to keep more output specific layers
+            # self.linear2_1 = nn.Linear(512, 256)
+            # self.bn7_1 = nn.BatchNorm1d(256)
+            # self.dp2_1 = nn.Dropout(p=args.dropout)
             self.linear3_1 = nn.Linear(256, self.num_out_classes_1)
 
     def forward(self, x, info_point_set, task_id=0):

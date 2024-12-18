@@ -11,7 +11,7 @@ subject_id=$1  # e.g., 100206 or 'all' to process all subjects
 data_dir=$2    # folder that contains the subjects
 num_jobs=$3    # number of parallel jobs
 
-threading="-nthreads 1" # Set the max number of threads process can use (e.g. number of cores)
+threading="-nthreads 64" # Set the max number of threads process can use (e.g. number of cores)
 
 process_subject() {
     local subject_id=$1
@@ -28,7 +28,7 @@ process_subject() {
         mkdir -p "${output_dir}"
     else
         echo -e "${RED}[INFO]${NC} `date`: Skipping ${subject_id}, output directory already exists."
-        return
+        # return
     fi
 
     log_file="${data_dir}/${subject_id}/output/tractography_log.txt"
@@ -208,14 +208,19 @@ process_subject() {
     ########################## STREAMLINES ##########################
     #################################################################
     start_time_tractography=$(date +%s)
-    streamlines=100K
+    streamlines=10M
     # Create streamlines
     tracts="${dmri_dir}/tracts_${streamlines}.tck"
     tractstats="${dmri_dir}/stats/${subject_id}_tracts_${streamlines}_stats.json"
     mkdir -p "${dmri_dir}/stats"
     if [ ! -f ${tracts} ]; then
         echo -e "${GREEN}[INFO]${NC} `date`: Running probabilistic tractography" | tee -a "${log_file}"
-        tckgen -seed_gmwmi "${gmwm_seed}" -act "${seg_5tt}" -select "${streamlines}" \
+        # Seed until #streamlines reached
+        # tckgen -seed_gmwmi "${gmwm_seed}" -act "${seg_5tt}" -select "${streamlines}" \
+        #                     -maxlength 250 -cutoff 0.1 ${threading} "${wm_fod_norm}" "${tracts}" -power 0.5 \
+        #                     -info -samples 3  2>&1 | tee -a "${log_file}" #-output_stats "${tractstats}"
+        # Seed #streamlines
+        tckgen -seed_gmwmi "${gmwm_seed}" -act "${seg_5tt}" -seeds "${streamlines}" \
                             -maxlength 250 -cutoff 0.1 ${threading} "${wm_fod_norm}" "${tracts}" -power 0.5 \
                             -info -samples 3  2>&1 | tee -a "${log_file}" #-output_stats "${tractstats}"
         # Visualize result
@@ -253,7 +258,7 @@ process_subject() {
     # Write tracts to vtk file
     tracts_vtk=${output_dir}/streamlines_${streamlines}.vtk
     if [ ! -f ${tracts_vtk} ]; then
-        tckconvert -binary ${tracts} ${tracts_vtk} 2>&1 | tee -a "${log_file}" # might give error as -binary became an option in rtrix 3.0.4 (download with conda install -c mrtrix3 mrtrix3)
+        tckconvert -binary ${tracts} ${tracts_vtk} 2>&1 | tee -a "${log_file}" # might give error as -binary became an option in mrtrix 3.0.4 (download with conda install -c mrtrix3 mrtrix3)
     fi
     tracts_vtk_MNI=${output_dir}/streamlines_${streamlines}_MNI.vtk
     if [ ! -f ${tracts_vtk_MNI} ]; then
@@ -324,18 +329,6 @@ process_subject() {
     python3 ./clean_log.py "${log_file}"
     echo "Log file cleaned!"
 }
-
-# if [ "$subject_id" = "all" ]; then
-#     for subject_dir in "${data_dir}"/*/ ; do
-#     # for subject_dir in $(ls -d "${data_dir}"/*/ | tac); do
-#         real_subject_id=$(basename "${subject_dir}")
-#         (
-#             process_subject "${real_subject_id}" "${streamlines}" "${data_dir}"
-#         ) 
-#     done
-# else
-#     process_subject "${subject_id}" "${streamlines}" "${data_dir}"
-# fi
 
 
 export -f process_subject  # Export the function for parallel

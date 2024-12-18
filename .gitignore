@@ -109,3 +109,5 @@ plots/
 *.csv
 /analysis/ShapeAnalysisTractography-main
 /analysis/CPM
+analysis/data/subjects_tractography_output_1000_test.txt
+analysis/test_retest/data/blant_plot.png

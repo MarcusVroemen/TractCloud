@@ -5,10 +5,8 @@
 
 # Define the directory where the HCP data is downloaded
 # HCP_download_dir="HCP"
-HCP_download_dir="/media/volume/sdb/HCP_S1200"
-
-# destination_dir="data"
-destination_dir="/media/volume/sdb/HCP_MRtrix"
+# HCP_download_dir=$1
+# destination_dir=$2
 
 # Remove all the .md5 files
 rm ${HCP_download_dir}/*md5
@@ -75,12 +73,4 @@ done
 
 # Uncomment next line to delete the entire HCP download directory afterwards
 # rm -rf "$HCP_download_dir"
-
-# data_dir=$1
-# for subject_dir in ${data_dir}/*/ ; do
-#     (
-#         rm -rf "${subject_dir}/output/"
-#     ) # & # Add this to run jobs at the same time
-
-# done
 

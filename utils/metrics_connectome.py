@@ -6,7 +6,7 @@ import random
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-from sklearn.metrics import mean_squared_error, precision_recall_fscore_support, classification_report, accuracy_score, confusion_matrix 
+from sklearn.metrics import mean_squared_error, precision_recall_fscore_support, classification_report, accuracy_score, confusion_matrix, mean_absolute_error, mean_absolute_percentage_error 
 from scipy.stats import pearsonr, spearmanr, wasserstein_distance
 from utils.metrics_plots import classify_report, process_curves, calculate_acc_prec_recall_f1, best_swap, save_best_weights
 from sklearn.metrics import precision_score, f1_score, recall_score
@@ -136,7 +136,7 @@ class ConnectomeMetrics:
         self.true_connectome = create_connectome(self.true_labels_decoded, self.num_labels)
         self.pred_connectome = create_connectome(self.pred_labels_decoded, self.num_labels)
 
-        Save connectomes
+        # Save connectomes
         save_connectome(self.true_connectome, self.out_path, title=f'{self.atlas}_true')
         save_connectome(self.pred_connectome, self.out_path, title=f'{self.atlas}_pred')
         
@@ -236,8 +236,8 @@ class ConnectomeMetrics:
         pearson_corr, _ = pearsonr(self.true_connectome.flatten(), self.pred_connectome.flatten())
         spearman_corr, _ = spearmanr(self.true_connectome.flatten(), self.pred_connectome.flatten())
         mse = mean_squared_error(self.true_connectome, self.pred_connectome)
-        # Cosine similarity
-        # cos_sim = cosine_similarity(self.true_connectome.flatten().reshape(1, -1), self.pred_connectome.flatten().reshape(1, -1))[0][0]
+        mae = np.sum(np.absolute(self.true_connectome- self.pred_connectome))
+        mape = mae/np.sum(self.true_connectome)
 
         # Frobenius Norm
         frobenius_norm = norm(self.true_connectome - self.pred_connectome, 'fro')
@@ -253,18 +253,6 @@ class ConnectomeMetrics:
         Facc = accuracy_score(filtered_labels, filtered_predictions)
         Fmac_precision, Fmac_recall, Fmac_f1, Fsupport = precision_recall_fscore_support(filtered_labels, filtered_predictions, beta=1.0, average='macro', zero_division=np.nan) # ignore empty labels
         Fweighted_precision, Fweighted_recall, Fweighted_f1, Fsupport = precision_recall_fscore_support(filtered_labels, filtered_predictions, beta=1.0, average='weighted', zero_division=np.nan) # ignore empty labels
-        
-        # import pdb 
-        # pdb.set_trace()
-        # labels_to_ignore = [[ 1,  1], [ 3, 26], [ 6, 10], [ 7,  7], [ 7, 10], [ 8,  8], [10,  6], [10,  7], [10, 10], [12, 12], [14, 14], [21, 30], [24, 28], [26,  3], [26, 26], [26, 27], [27, 26], [27, 27], [28, 24], [28, 28], [30, 21], [34, 38], [38, 34], [52, 75], [55, 55], [55, 57], [56, 56], [56, 77], [57, 55], [59, 59], [61, 61], [72, 72], [73, 73], [73, 77], [75, 52], [75, 75], [75, 76], [76, 75], [76, 76], [77, 56], [77, 73], [77, 77], [79, 79]]
-        # ignore_labels = convert_labels_list(labels_to_ignore, encoding_type='symmetric', 
-        #                                     mode='encode', num_labels=85)
-        # mask = ~np.isin(self.true_labels, ignore_labels)
-        # filtered_labels = np.array(self.true_labels)[mask]
-        # filtered_predictions = np.array(self.pred_labels)[mask]
-        # Facc = accuracy_score(filtered_labels, filtered_predictions)
-        # Fmac_precision, Fmac_recall, Fmac_f1, Fsupport = precision_recall_fscore_support(filtered_labels, filtered_predictions, beta=1.0, average='macro', zero_division=np.nan) # ignore empty labels
-        # Fweighted_precision, Fweighted_recall, Fweighted_f1, Fsupport = precision_recall_fscore_support(filtered_labels, filtered_predictions, beta=1.0, average='weighted', zero_division=np.nan) # ignore empty labels
         
         # Storing the results
         metrics = {
@@ -283,12 +271,14 @@ class ConnectomeMetrics:
             'Precision (weighted) without unknown': Fweighted_precision,
             'Recall (weighted) without unknown': Fweighted_recall,
             'MSE': mse,
+            'MAE': mae,
+            'MAPE': mape,
             'Pearson Correlation': pearson_corr,
             'Spearman Correlation': spearman_corr,
-            # 'Cosine Similarity': cos_sim,
             'Frobenius Norm': frobenius_norm,
             'Earth Mover\'s Distance': emd
         }
+        print(mape, mae)
         self.results.update(metrics)
 
     def global_reaching_centrality(self, G):
@@ -297,17 +287,6 @@ class ConnectomeMetrics:
         CmaxR = max(reachability.values())
         GRC = sum(CmaxR - reach for reach in reachability.values()) / (len(G) - 1)
         return GRC
-    
-    # def random_edge_sample(self, G, sample_size):
-    #     """Returns a subgraph with a random sample of edges."""
-    #     edges = list(G.edges(data=True))
-    #     if len(edges)>sample_size:
-    #         sampled_edges = random.sample(edges, sample_size)
-    #         H = nx.Graph()
-    #         H.add_edges_from(sampled_edges)
-    #         return H
-    #     else:
-    #         return G
 
     def small_worldness(self, G, niter=5):
         """Compute the small-worldness of a graph G using omega and sigma."""
@@ -409,18 +388,3 @@ class ConnectomeMetrics:
             Earth Mover's Distance: {Earth Mover's Distance:.4f}
 
             """.format(**self.results)
-            # Network Metrics:
-            # ----------------
-            # Global Efficiency (True, Pred): {Global Efficiency[0]:.4f}, {Global Efficiency[1]:.4f}
-            # Local Efficiency (True, Pred): {Local Efficiency[0]:.4f}, {Local Efficiency[1]:.4f}
-            # Modularity (True, Pred): {Modularity[0]:.4f}, {Modularity[1]:.4f}
-            # Global Reaching Centrality (True, Pred): {Global Reaching Centrality[0]:.4f}, {Global Reaching Centrality[1]:.4f}
-            # Clustering Coefficient (True, Pred): {Clustering Coefficient[0]:.4f}, {Clustering Coefficient[1]:.4f}
-            # Path Length (True, Pred): {Path Length[0]:.4f}, {Path Length[1]:.4f}
-            # Small-worldness Omega (True, Pred): {Small-worldness Omega[0]:.4f}, {Small-worldness Omega[1]:.4f}
-            # Small-worldness Sigma (True, Pred): {Small-worldness Sigma[0]:.4f}, {Small-worldness Sigma[1]:.4f}
-            # Network Density (True, Pred): {Network Density[0]:.4f}, {Network Density[1]:.4f}
-
-            # Degree Centrality (True, Pred): {Degree Centrality[0]}, {Degree Centrality[1]}
-            # Eigenvector Centrality (True, Pred): {Eigenvector Centrality[0]}, {Eigenvector Centrality[1]}
-            # Betweenness Centrality (True, Pred): {Betweenness Centrality[0]}, {Betweenness Centrality[1]}
